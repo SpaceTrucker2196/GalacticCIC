@@ -15,7 +15,9 @@ class ActivityLogPanel(Static):
     DEFAULT_CSS = """
     ActivityLogPanel {
         height: 100%;
+        background: #020a02;
         border: solid #1a5c1a;
+        color: #33ff33;
         padding: 0 1;
     }
 

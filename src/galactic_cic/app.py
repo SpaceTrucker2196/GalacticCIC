@@ -128,8 +128,20 @@ class CICHeader(Static):
 class CICDashboard(App):
     """Main CIC Dashboard application."""
 
+    DARK = True
+
     CSS = """
     Screen {
+        background: #020a02;
+        color: #33ff33;
+    }
+
+    Static {
+        background: #020a02;
+        color: #33ff33;
+    }
+
+    Container {
         background: #020a02;
     }
 
@@ -152,8 +164,26 @@ class CICDashboard(App):
     }
 
     Footer {
-        background: #0d1a00;
+        background: #020a02;
         color: #33ff33;
+    }
+
+    Footer > .footer--key {
+        background: #0d1a00;
+        color: #4aff4a;
+    }
+
+    Footer > .footer--description {
+        color: #1a8c1a;
+    }
+
+    FooterKey > .footer-key--key {
+        background: #0d1a00;
+        color: #4aff4a;
+    }
+
+    FooterKey > .footer-key--description {
+        color: #1a8c1a;
     }
     """
 
