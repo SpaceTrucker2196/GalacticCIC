@@ -24,10 +24,10 @@ class SecurityPanel(Static):
     async def refresh_data(self) -> None:
         """Refresh security data asynchronously."""
         data = await get_security_status()
-        content = self._render_content(data)
+        content = self._build_content(data)
         self.update(content)
 
-    def _render_content(self, data: dict) -> Text:
+    def _build_content(self, data: dict) -> Text:
         """Render the panel content."""
         text = Text()
 

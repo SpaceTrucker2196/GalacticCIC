@@ -24,10 +24,10 @@ class ServerHealthPanel(Static):
     async def refresh_data(self) -> None:
         """Refresh server health data asynchronously."""
         health = await get_server_health()
-        content = self._render_content(health)
+        content = self._build_content(health)
         self.update(content)
 
-    def _render_content(self, health: dict) -> Text:
+    def _build_content(self, health: dict) -> Text:
         """Render the panel content with progress bars."""
         text = Text()
 

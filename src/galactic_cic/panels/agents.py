@@ -29,11 +29,11 @@ class AgentFleetPanel(Static):
         """Refresh agent data asynchronously."""
         agents_data = await get_agents_data()
         status_data = await get_openclaw_status()
-        content = self._render_content(agents_data, status_data)
+        content = self._build_content(agents_data, status_data)
         content_widget = self.query_one("#agents-content", Static)
         content_widget.update(content)
 
-    def _render_content(self, agents_data: dict, status_data: dict) -> Text:
+    def _build_content(self, agents_data: dict, status_data: dict) -> Text:
         """Render the panel content."""
         text = Text()
 
