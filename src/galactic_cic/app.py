@@ -9,7 +9,23 @@ from textual.binding import Binding
 from textual.containers import Container
 from textual.widgets import Footer, Static
 from textual.screen import ModalScreen
+from textual.theme import Theme
 from rich.text import Text
+
+PHOSPHOR_THEME = Theme(
+    name="phosphor",
+    primary="#33ff33",
+    secondary="#1a8c1a",
+    background="#020a02",
+    surface="#041004",
+    panel="#061206",
+    accent="#4aff4a",
+    foreground="#33ff33",
+    warning="#ccaa00",
+    error="#cc3333",
+    success="#33ff33",
+    dark=True,
+)
 
 from galactic_cic.panels import (
     AgentFleetPanel,
@@ -130,6 +146,13 @@ class CICDashboard(App):
 
     DARK = True
 
+    def __init__(self):
+        super().__init__()
+        self.register_theme(PHOSPHOR_THEME)
+        self.theme = "phosphor"
+        self._panel_order = ["agents", "server", "cron", "security", "activity"]
+        self._current_panel_index = 0
+
     CSS = """
     Screen {
         background: #020a02;
@@ -200,11 +223,6 @@ class CICDashboard(App):
         Binding("question_mark", "show_help", "Help"),
         Binding("escape", "clear_filter", "Clear", show=False),
     ]
-
-    def __init__(self):
-        super().__init__()
-        self._panel_order = ["agents", "server", "cron", "security", "activity"]
-        self._current_panel_index = 0
 
     def compose(self) -> ComposeResult:
         yield CICHeader()
