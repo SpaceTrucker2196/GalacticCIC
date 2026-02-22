@@ -32,7 +32,7 @@ def step_listening_ports(context, count):
 @when("the security panel refreshes")
 def step_render_security(context):
     panel = SecurityPanel()
-    context.panel_output = panel._render_content(context.test_data["security"])
+    context.panel_output = panel._build_content(context.test_data["security"])
 
 
 @then('SSH status should show green with "{message}"')

@@ -53,7 +53,7 @@ def step_no_openclaw(context):
 @when("the agent panel tries to refresh")
 def step_load_agent_panel(context):
     panel = AgentFleetPanel()
-    context.panel_output = panel._render_content(
+    context.panel_output = panel._build_content(
         context.test_data["agents"],
         context.test_data["status"],
     )

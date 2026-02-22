@@ -55,7 +55,7 @@ def step_cron_errors(context, count):
 @when("the cron panel renders")
 def step_render_cron(context):
     panel = CronJobsPanel()
-    context.panel_output = panel._render_content(context.test_data["cron"])
+    context.panel_output = panel._build_content(context.test_data["cron"])
 
 
 @then("I should see {count:d} cron jobs listed")

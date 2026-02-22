@@ -55,7 +55,7 @@ def step_gateway_running(context):
 @when("the server panel renders")
 def step_render_server(context):
     panel = ServerHealthPanel()
-    context.panel_output = panel._render_content(context.test_data["health"])
+    context.panel_output = panel._build_content(context.test_data["health"])
 
 
 @then("I should see CPU usage as a percentage")
