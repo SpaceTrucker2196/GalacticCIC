@@ -39,7 +39,7 @@ class HelpScreen(ModalScreen):
         height: auto;
         max-height: 80%;
         border: thick #1a5c1a;
-        background: #0a0a0a;
+        background: #020a02;
         padding: 1 2;
     }
 
@@ -130,7 +130,7 @@ class CICDashboard(App):
 
     CSS = """
     Screen {
-        background: #0a0a0a;
+        background: #020a02;
     }
 
     #main-grid {
