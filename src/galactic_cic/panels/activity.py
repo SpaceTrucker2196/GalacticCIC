@@ -15,6 +15,7 @@ class ActivityLogPanel(Static):
     DEFAULT_CSS = """
     ActivityLogPanel {
         height: 100%;
+        overflow: auto;
         background: #020a02;
         border: solid #1a5c1a;
         color: #33ff33;
@@ -23,6 +24,7 @@ class ActivityLogPanel(Static):
 
     ActivityLogPanel RichLog {
         height: 100%;
+        overflow: auto;
         scrollbar-size: 1 1;
     }
     """

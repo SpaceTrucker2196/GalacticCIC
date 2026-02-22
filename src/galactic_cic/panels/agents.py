@@ -13,6 +13,7 @@ class AgentFleetPanel(Static):
     DEFAULT_CSS = """
     AgentFleetPanel {
         height: 100%;
+        overflow: auto;
         background: #020a02;
         border: solid #1a5c1a;
         color: #33ff33;

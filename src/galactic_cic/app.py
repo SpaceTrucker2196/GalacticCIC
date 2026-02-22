@@ -17,14 +17,16 @@ PHOSPHOR_THEME = Theme(
     primary="#33ff33",
     secondary="#1a8c1a",
     background="#020a02",
-    surface="#041004",
-    panel="#061206",
+    surface="#020a02",
+    panel="#020a02",
     accent="#4aff4a",
     foreground="#33ff33",
     warning="#ccaa00",
     error="#cc3333",
     success="#33ff33",
     dark=True,
+    luminosity_spread=0.0,
+    text_alpha=1.0,
 )
 
 from galactic_cic.panels import (
