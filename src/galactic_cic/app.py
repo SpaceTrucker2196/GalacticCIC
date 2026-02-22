@@ -1,5 +1,4 @@
-#!/usr/bin/env python3
-"""CIC Dashboard - Combat Information Center TUI for OpenClaw operations monitoring."""
+"""GalacticCIC - Combat Information Center TUI for OpenClaw operations monitoring."""
 
 import asyncio
 from datetime import datetime, timezone
@@ -7,16 +6,18 @@ from zoneinfo import ZoneInfo
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import Header, Footer, Static
+from textual.containers import Container
+from textual.widgets import Footer, Static
 from textual.screen import ModalScreen
 from rich.text import Text
 
-from panels.agents import AgentFleetPanel
-from panels.server import ServerHealthPanel
-from panels.cron import CronJobsPanel
-from panels.security import SecurityPanel
-from panels.activity import ActivityLogPanel
+from galactic_cic.panels import (
+    AgentFleetPanel,
+    ServerHealthPanel,
+    CronJobsPanel,
+    SecurityPanel,
+    ActivityLogPanel,
+)
 
 
 class HelpScreen(ModalScreen):
@@ -25,7 +26,7 @@ class HelpScreen(ModalScreen):
     BINDINGS = [
         Binding("escape", "dismiss", "Close"),
         Binding("q", "dismiss", "Close"),
-        Binding("?", "dismiss", "Close"),
+        Binding("question_mark", "dismiss", "Close"),
     ]
 
     DEFAULT_CSS = """
@@ -51,7 +52,8 @@ class HelpScreen(ModalScreen):
         with Container():
             yield Static(self._help_text())
 
-    def _help_text(self) -> Text:
+    @staticmethod
+    def _help_text() -> Text:
         text = Text()
         text.append("CIC Dashboard Help\n", style="bold cyan")
         text.append("=" * 30 + "\n\n", style="dim")
@@ -110,9 +112,15 @@ class CICHeader(Static):
         now_ct = now_utc.astimezone(self._ct_tz)
 
         text = Text()
-        text.append("  \U0001f6f8 CIC \u2014 Combat Information Center", style="bold white")
+        text.append(
+            "  \U0001f6f8 CIC \u2014 Combat Information Center",
+            style="bold white",
+        )
         text.append("    ")
-        text.append(f"[{now_utc.strftime('%H:%M')} UTC / {now_ct.strftime('%H:%M')} CT]", style="cyan")
+        text.append(
+            f"[{now_utc.strftime('%H:%M')} UTC / {now_ct.strftime('%H:%M')} CT]",
+            style="cyan",
+        )
 
         self.update(text)
 
@@ -133,30 +141,11 @@ class CICDashboard(App):
         padding: 0;
     }
 
-    #top-left {
-        row-span: 1;
-        column-span: 1;
-    }
-
-    #top-right {
-        row-span: 1;
-        column-span: 1;
-    }
-
-    #mid-left {
-        row-span: 1;
-        column-span: 1;
-    }
-
-    #mid-right {
-        row-span: 1;
-        column-span: 1;
-    }
-
-    #bottom {
-        row-span: 1;
-        column-span: 2;
-    }
+    #top-left { row-span: 1; column-span: 1; }
+    #top-right { row-span: 1; column-span: 1; }
+    #mid-left { row-span: 1; column-span: 1; }
+    #mid-right { row-span: 1; column-span: 1; }
+    #bottom { row-span: 1; column-span: 2; }
 
     .panel-focused {
         border: double $accent;
@@ -194,23 +183,13 @@ class CICDashboard(App):
 
     async def on_mount(self) -> None:
         """Set up refresh timers when app mounts."""
-        # Initial refresh
         await self.action_refresh_all()
-
-        # Server health: every 5 seconds
         self.set_interval(5, self._refresh_server)
-
-        # Agents and Cron: every 30 seconds
         self.set_interval(30, self._refresh_agents_cron)
-
-        # Security: every 60 seconds
         self.set_interval(60, self._refresh_security)
-
-        # Activity log: every 10 seconds
         self.set_interval(10, self._refresh_activity)
 
     async def _refresh_server(self) -> None:
-        """Refresh server health panel."""
         try:
             panel = self.query_one("#server", ServerHealthPanel)
             await panel.refresh_data()
@@ -218,20 +197,17 @@ class CICDashboard(App):
             pass
 
     async def _refresh_agents_cron(self) -> None:
-        """Refresh agents and cron panels."""
         try:
             agents = self.query_one("#agents", AgentFleetPanel)
             cron = self.query_one("#cron", CronJobsPanel)
             await asyncio.gather(
-                agents.refresh_data(),
-                cron.refresh_data(),
+                agents.refresh_data(), cron.refresh_data(),
                 return_exceptions=True,
             )
         except Exception:
             pass
 
     async def _refresh_security(self) -> None:
-        """Refresh security panel."""
         try:
             panel = self.query_one("#security", SecurityPanel)
             await panel.refresh_data()
@@ -239,7 +215,6 @@ class CICDashboard(App):
             pass
 
     async def _refresh_activity(self) -> None:
-        """Refresh activity log panel."""
         try:
             panel = self.query_one("#activity", ActivityLogPanel)
             await panel.refresh_data()
@@ -261,7 +236,6 @@ class CICDashboard(App):
         try:
             panel = self.query_one(f"#{panel_id}")
             panel.focus()
-            # Update visual indicator
             for p in self._panel_order:
                 self.query_one(f"#{p}").remove_class("panel-focused")
             panel.add_class("panel-focused")
@@ -271,17 +245,16 @@ class CICDashboard(App):
 
     def action_cycle_focus(self) -> None:
         """Cycle focus to next panel."""
-        self._current_panel_index = (self._current_panel_index + 1) % len(self._panel_order)
+        self._current_panel_index = (
+            (self._current_panel_index + 1) % len(self._panel_order)
+        )
         panel_id = self._panel_order[self._current_panel_index]
         self.action_focus_panel(panel_id)
 
     def action_filter_log(self) -> None:
-        """Prompt for activity log filter."""
-        # For now, just show a notification
         self.notify("Filter: Press Escape to clear", timeout=2)
 
     def action_clear_filter(self) -> None:
-        """Clear activity log filter."""
         try:
             panel = self.query_one("#activity", ActivityLogPanel)
             panel.set_filter("")
@@ -290,7 +263,6 @@ class CICDashboard(App):
             pass
 
     def action_show_help(self) -> None:
-        """Show help screen."""
         self.push_screen(HelpScreen())
 
 

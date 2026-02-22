@@ -1,5 +1,6 @@
-"""Data collectors for CIC Dashboard."""
-from .collectors import (
+"""Data collectors for GalacticCIC."""
+
+from galactic_cic.data.collectors import (
     get_agents_data,
     get_openclaw_status,
     get_server_health,

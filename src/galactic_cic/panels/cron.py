@@ -1,9 +1,9 @@
-"""Cron Jobs panel for CIC Dashboard."""
+"""Cron Jobs panel for GalacticCIC."""
 
 from textual.widgets import Static
 from rich.text import Text
 
-from data.collectors import get_cron_jobs
+from galactic_cic.data.collectors import get_cron_jobs
 
 
 class CronJobsPanel(Static):
@@ -18,10 +18,10 @@ class CronJobsPanel(Static):
     """
 
     STATUS_ICONS = {
-        "ok": ("\u2705", "green"),       # checkmark
-        "error": ("\u274c", "red"),      # X
-        "idle": ("\u23f3", "yellow"),    # hourglass
-        "running": ("\U0001f504", "cyan"),  # arrows
+        "ok": ("\u2705", "green"),
+        "error": ("\u274c", "red"),
+        "idle": ("\u23f3", "yellow"),
+        "running": ("\U0001f504", "cyan"),
     }
 
     def __init__(self, *args, **kwargs):
@@ -42,7 +42,9 @@ class CronJobsPanel(Static):
         if not jobs:
             text.append("  No cron jobs found\n", style="dim")
             if data.get("error"):
-                text.append(f"  Error: {data['error'][:40]}\n", style="red dim")
+                text.append(
+                    f"  Error: {data['error'][:40]}\n", style="red dim"
+                )
             return text
 
         for job in jobs:

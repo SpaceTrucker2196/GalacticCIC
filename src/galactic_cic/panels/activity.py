@@ -1,10 +1,12 @@
-"""Activity Log panel for CIC Dashboard."""
+"""Activity Log panel for GalacticCIC."""
+
+from datetime import datetime
 
 from textual.widgets import Static, RichLog
 from textual.app import ComposeResult
 from rich.text import Text
 
-from data.collectors import get_activity_log
+from galactic_cic.data.collectors import get_activity_log
 
 
 class ActivityLogPanel(Static):
@@ -38,13 +40,15 @@ class ActivityLogPanel(Static):
         log_widget.clear()
 
         for event in events:
-            if self._filter and self._filter.lower() not in event.get("message", "").lower():
+            if self._filter and self._filter.lower() not in event.get(
+                "message", ""
+            ).lower():
                 continue
-
             line = self._format_event(event)
             log_widget.write(line)
 
-    def _format_event(self, event: dict) -> Text:
+    @staticmethod
+    def _format_event(event: dict) -> Text:
         """Format a single event for display."""
         text = Text()
 
@@ -53,28 +57,24 @@ class ActivityLogPanel(Static):
         level = event.get("level", "info")
         event_type = event.get("type", "")
 
-        # Time
         text.append(f"  {time_str:>8} ", style="dim")
 
-        # Color based on level
         if level == "error":
             style = "red"
-        elif level == "warn" or level == "warning":
+        elif level in ("warn", "warning"):
             style = "yellow"
         else:
             style = "white"
 
-        # Type icon
         type_icons = {
-            "ssh": "\U0001f511",      # key
-            "cron": "\u23f0",         # alarm clock
-            "openclaw": "\U0001f980", # crab
-            "system": "\U0001f4bb",   # computer
+            "ssh": "\U0001f511",
+            "cron": "\u23f0",
+            "openclaw": "\U0001f980",
+            "system": "\U0001f4bb",
         }
         icon = type_icons.get(event_type, "\u2022")
         text.append(f"{icon} ", style="cyan")
 
-        # Message (truncate if too long)
         if len(message) > 60:
             message = message[:57] + "..."
         text.append(message, style=style)
