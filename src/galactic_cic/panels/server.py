@@ -12,7 +12,7 @@ class ServerHealthPanel(Static):
     DEFAULT_CSS = """
     ServerHealthPanel {
         height: 100%;
-        border: solid green;
+        border: solid #1a5c1a;
         padding: 0 1;
     }
     """
@@ -32,33 +32,33 @@ class ServerHealthPanel(Static):
         text = Text()
 
         cpu = health.get("cpu_percent", 0)
-        text.append("  CPU:  ", style="dim")
+        text.append("  CPU:  ", style="#0d7a0d")
         text.append(self._make_bar(cpu), style=self._bar_color(cpu))
         text.append(f"  {cpu:4.0f}%\n")
 
         mem = health.get("mem_percent", 0)
         mem_used = health.get("mem_used", "?")
         mem_total = health.get("mem_total", "?")
-        text.append("  MEM:  ", style="dim")
+        text.append("  MEM:  ", style="#0d7a0d")
         text.append(self._make_bar(mem), style=self._bar_color(mem))
         text.append(f"  {mem:4.0f}%  {mem_used}/{mem_total}\n")
 
         disk = health.get("disk_percent", 0)
         disk_used = health.get("disk_used", "?")
         disk_total = health.get("disk_total", "?")
-        text.append("  DISK: ", style="dim")
+        text.append("  DISK: ", style="#0d7a0d")
         text.append(self._make_bar(disk), style=self._bar_color(disk))
         text.append(f"  {disk:4.0f}%  {disk_used}/{disk_total}\n")
 
         text.append("\n")
 
         load = health.get("load_avg", [0, 0, 0])
-        text.append("  LOAD: ", style="dim")
-        text.append(f"{load[0]:.2f} {load[1]:.2f} {load[2]:.2f}\n", style="cyan")
+        text.append("  LOAD: ", style="#0d7a0d")
+        text.append(f"{load[0]:.2f} {load[1]:.2f} {load[2]:.2f}\n", style="#33ff33")
 
         uptime = health.get("uptime", "unknown")
-        text.append("  UP:   ", style="dim")
-        text.append(f"{uptime}\n", style="cyan")
+        text.append("  UP:   ", style="#0d7a0d")
+        text.append(f"{uptime}\n", style="#33ff33")
 
         return text
 

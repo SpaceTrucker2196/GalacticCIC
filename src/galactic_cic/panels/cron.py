@@ -12,7 +12,7 @@ class CronJobsPanel(Static):
     DEFAULT_CSS = """
     CronJobsPanel {
         height: 100%;
-        border: solid green;
+        border: solid #1a5c1a;
         padding: 0 1;
     }
     """
@@ -40,7 +40,7 @@ class CronJobsPanel(Static):
 
         jobs = data.get("jobs", [])
         if not jobs:
-            text.append("  No cron jobs found\n", style="dim")
+            text.append("  No cron jobs found\n", style="#0d7a0d")
             if data.get("error"):
                 text.append(
                     f"  Error: {data['error'][:40]}\n", style="red dim"
@@ -56,13 +56,13 @@ class CronJobsPanel(Static):
             icon, color = self.STATUS_ICONS.get(status, ("\u2753", "dim"))
 
             text.append(f"  {icon} ", style=color)
-            text.append(f"{name:14}", style="white")
+            text.append(f"{name:14}", style="#33ff33")
 
             if last_run:
-                text.append(f" {last_run}", style="dim")
+                text.append(f" {last_run}", style="#0d7a0d")
 
             if errors and errors > 0:
-                text.append(f" ({errors} err)", style="red")
+                text.append(f" ({errors} err)", style="#cc3333")
 
             text.append("\n")
 

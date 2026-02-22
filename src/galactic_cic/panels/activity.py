@@ -15,7 +15,7 @@ class ActivityLogPanel(Static):
     DEFAULT_CSS = """
     ActivityLogPanel {
         height: 100%;
-        border: solid green;
+        border: solid #1a5c1a;
         padding: 0 1;
     }
 
@@ -57,7 +57,7 @@ class ActivityLogPanel(Static):
         level = event.get("level", "info")
         event_type = event.get("type", "")
 
-        text.append(f"  {time_str:>8} ", style="dim")
+        text.append(f"  {time_str:>8} ", style="#0d7a0d")
 
         if level == "error":
             style = "red"
@@ -73,7 +73,7 @@ class ActivityLogPanel(Static):
             "system": "\U0001f4bb",
         }
         icon = type_icons.get(event_type, "\u2022")
-        text.append(f"{icon} ", style="cyan")
+        text.append(f"{icon} ", style="#33ff33")
 
         if len(message) > 60:
             message = message[:57] + "..."

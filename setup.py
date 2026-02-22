@@ -23,6 +23,7 @@ setup(
     },
     entry_points={
         "console_scripts": [
+            "galactic_cic=galactic_cic.app:main",
             "galactic-cic=galactic_cic.app:main",
         ],
     },

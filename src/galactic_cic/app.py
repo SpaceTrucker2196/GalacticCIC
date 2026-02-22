@@ -38,8 +38,8 @@ class HelpScreen(ModalScreen):
         width: 50;
         height: auto;
         max-height: 80%;
-        border: thick $accent;
-        background: $surface;
+        border: thick #1a5c1a;
+        background: #0a0a0a;
         padding: 1 2;
     }
 
@@ -55,8 +55,8 @@ class HelpScreen(ModalScreen):
     @staticmethod
     def _help_text() -> Text:
         text = Text()
-        text.append("CIC Dashboard Help\n", style="bold cyan")
-        text.append("=" * 30 + "\n\n", style="dim")
+        text.append("CIC Dashboard Help\n", style="bold #4aff4a")
+        text.append("=" * 30 + "\n\n", style="#0d7a0d")
 
         bindings = [
             ("q", "Quit application"),
@@ -73,15 +73,15 @@ class HelpScreen(ModalScreen):
         ]
 
         for key, desc in bindings:
-            text.append(f"  {key:8}", style="green")
-            text.append(f" {desc}\n")
+            text.append(f"  {key:8}", style="#33ff33")
+            text.append(f" {desc}\n", style="#1a8c1a")
 
         text.append("\n")
-        text.append("Refresh Rates:\n", style="bold")
-        text.append("  Server health:  5s\n", style="dim")
-        text.append("  Agents/Cron:   30s\n", style="dim")
-        text.append("  Security:      60s\n", style="dim")
-        text.append("  Activity log:  10s\n", style="dim")
+        text.append("Refresh Rates:\n", style="bold #4aff4a")
+        text.append("  Server health:  5s\n", style="#0d7a0d")
+        text.append("  Agents/Cron:   30s\n", style="#0d7a0d")
+        text.append("  Security:      60s\n", style="#0d7a0d")
+        text.append("  Activity log:  10s\n", style="#0d7a0d")
 
         return text
 
@@ -93,8 +93,8 @@ class CICHeader(Static):
     CICHeader {
         dock: top;
         height: 1;
-        background: $primary-darken-2;
-        color: $text;
+        background: #0d1a00;
+        color: #33ff33;
         text-style: bold;
     }
     """
@@ -114,12 +114,12 @@ class CICHeader(Static):
         text = Text()
         text.append(
             "  \U0001f6f8 CIC \u2014 Combat Information Center",
-            style="bold white",
+            style="bold #4aff4a",
         )
         text.append("    ")
         text.append(
             f"[{now_utc.strftime('%H:%M')} UTC / {now_ct.strftime('%H:%M')} CT]",
-            style="cyan",
+            style="#33ff33",
         )
 
         self.update(text)
@@ -130,7 +130,7 @@ class CICDashboard(App):
 
     CSS = """
     Screen {
-        background: $background;
+        background: #0a0a0a;
     }
 
     #main-grid {
@@ -148,7 +148,12 @@ class CICDashboard(App):
     #bottom { row-span: 1; column-span: 2; }
 
     .panel-focused {
-        border: double $accent;
+        border: double #4aff4a;
+    }
+
+    Footer {
+        background: #0d1a00;
+        color: #33ff33;
     }
     """
 

@@ -13,7 +13,7 @@ class AgentFleetPanel(Static):
     DEFAULT_CSS = """
     AgentFleetPanel {
         height: 100%;
-        border: solid green;
+        border: solid #1a5c1a;
         padding: 0 1;
     }
     """
@@ -41,10 +41,10 @@ class AgentFleetPanel(Static):
         error = agents_data.get("error")
 
         if error and not agents:
-            text.append("  Error loading agents\n", style="red")
+            text.append("  Error loading agents\n", style="#cc3333")
             text.append(f"  {error[:50]}\n", style="red dim")
         elif not agents:
-            text.append("  No agents found\n", style="dim")
+            text.append("  No agents found\n", style="#0d7a0d")
         else:
             for agent in agents:
                 name = agent.get("name", "unknown")
@@ -56,11 +56,11 @@ class AgentFleetPanel(Static):
                 else:
                     status_style = "red"
 
-                text.append(f"  {name:12} ", style="cyan")
+                text.append(f"  {name:12} ", style="#33ff33")
                 text.append("\u25cf ", style=status_style)
                 text.append(f"{status.upper()}", style=status_style)
                 if model:
-                    text.append(f"  ({model})", style="dim")
+                    text.append(f"  ({model})", style="#0d7a0d")
                 text.append("\n")
 
         text.append("\n")
@@ -69,16 +69,16 @@ class AgentFleetPanel(Static):
         model = status_data.get("model", "unknown")
         gateway = status_data.get("gateway_status", "unknown")
 
-        text.append("  Sessions: ", style="dim")
-        text.append(f"{sessions} active\n", style="cyan")
+        text.append("  Sessions: ", style="#0d7a0d")
+        text.append(f"{sessions} active\n", style="#33ff33")
 
-        text.append("  Model: ", style="dim")
-        text.append(f"{model}\n", style="cyan")
+        text.append("  Model: ", style="#0d7a0d")
+        text.append(f"{model}\n", style="#33ff33")
 
-        text.append("  Gateway: ", style="dim")
+        text.append("  Gateway: ", style="#0d7a0d")
         if gateway == "running":
-            text.append(f"{gateway}\n", style="green")
+            text.append(f"{gateway}\n", style="#33ff33")
         else:
-            text.append(f"{gateway}\n", style="yellow")
+            text.append(f"{gateway}\n", style="#ccaa00")
 
         return text
