@@ -16,7 +16,7 @@ metadata:
       pip: ["textual", "rich"]
 ---
 
-# GalacticCIC — Combat Information Center
+# GalacticCIC — Claw Information Center
 
 An htop-style interactive terminal dashboard for OpenClaw operations monitoring.
 

@@ -1,4 +1,4 @@
-# GalacticCIC — Combat Information Center TUI (v2 Spec)
+# GalacticCIC — Claw Information Center TUI (v2 Spec)
 
 ## Overview
 An htop-style interactive terminal dashboard for OpenClaw operations monitoring. Installable as an OpenClaw skill on any instance. This is the bridge display for any OpenClaw deployment.

@@ -1,4 +1,4 @@
-"""GalacticCIC — Combat Information Center TUI (curses-based)."""
+"""GalacticCIC — Claw Information Center TUI (curses-based)."""
 
 import asyncio
 import curses
@@ -136,7 +136,7 @@ class CICDashboard:
         except curses.error:
             pass
 
-        title = "CIC \u2014 Combat Information Center"
+        title = "CIC \u2014 Claw Information Center"
         try:
             self.stdscr.addnstr(0, 2, title, w - 4, header_attr)
         except curses.error:

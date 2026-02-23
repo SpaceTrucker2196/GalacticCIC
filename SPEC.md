@@ -1,4 +1,4 @@
-# CIC Dashboard — Combat Information Center TUI
+# CIC Dashboard — Claw Information Center TUI
 
 ## Overview
 An htop-style interactive terminal dashboard for OpenClaw operations monitoring. This is the bridge display for the Spacetrucker Galactic operations center.
@@ -12,7 +12,7 @@ An htop-style interactive terminal dashboard for OpenClaw operations monitoring.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  🛸 CIC — Combat Information Center    [19:47 UTC / 13:47 CT] │
+│  🛸 CIC — Claw Information Center    [19:47 UTC / 13:47 CT] │
 ├──────────────────────────┬──────────────────────────────────┤
 │  AGENT FLEET STATUS      │  SERVER HEALTH                   │
 │                          │                                  │

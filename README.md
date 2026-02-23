@@ -1,4 +1,4 @@
-# GalacticCIC — Combat Information Center
+# GalacticCIC — Claw Information Center
 
 [![CI](https://github.com/SpaceTrucker2196/cic-dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/SpaceTrucker2196/cic-dashboard/actions/workflows/ci.yml)
 
