@@ -1,24 +1,12 @@
-"""Cron Jobs panel for GalacticCIC."""
+"""Cron Jobs panel for curses TUI."""
 
-from textual.widgets import Static
-from rich.text import Text
-
-from galactic_cic.data.collectors import get_cron_jobs
+from galactic_cic.panels.base import BasePanel, StyledText
 
 
-class CronJobsPanel(Static):
+class CronJobsPanel(BasePanel):
     """Panel showing cron job status."""
 
-    DEFAULT_CSS = """
-    CronJobsPanel {
-        height: 100%;
-        overflow: auto;
-        background: #020a02;
-        border: solid #1a5c1a;
-        color: #33ff33;
-        padding: 0 1;
-    }
-    """
+    TITLE = "Cron Jobs"
 
     STATUS_ICONS = {
         "ok": ("\u2705", "green"),
@@ -27,28 +15,24 @@ class CronJobsPanel(Static):
         "running": ("\U0001f504", "cyan"),
     }
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.border_title = "CRON JOBS"
+    def __init__(self):
+        super().__init__()
+        self.cron_data = {"jobs": [], "error": None}
 
-    async def refresh_data(self) -> None:
-        """Refresh cron job data asynchronously."""
-        data = await get_cron_jobs()
-        content = self._build_content(data)
-        self.update(content)
+    def update(self, cron_data):
+        """Update panel data from collectors."""
+        self.cron_data = cron_data or self.cron_data
 
-    def _build_content(self, data: dict) -> Text:
-        """Render the panel content."""
-        text = Text()
+    def _build_content(self, data):
+        """Build content as StyledText — used by tests and rendering."""
+        st = StyledText()
 
         jobs = data.get("jobs", [])
         if not jobs:
-            text.append("  No cron jobs found\n", style="#0d7a0d")
+            st.append("  No cron jobs found\n", "dim")
             if data.get("error"):
-                text.append(
-                    f"  Error: {data['error'][:40]}\n", style="red dim"
-                )
-            return text
+                st.append(f"  Error: {data['error'][:40]}\n", "red")
+            return st
 
         for job in jobs:
             name = job.get("name", "unknown")
@@ -58,15 +42,33 @@ class CronJobsPanel(Static):
 
             icon, color = self.STATUS_ICONS.get(status, ("\u2753", "dim"))
 
-            text.append(f"  {icon} ", style=color)
-            text.append(f"{name:14}", style="#33ff33")
+            st.append(f"  {icon} ", color)
+            st.append(f"{name:14}", "green")
 
             if last_run:
-                text.append(f" {last_run}", style="#0d7a0d")
+                st.append(f" {last_run}", "dim")
 
             if errors and errors > 0:
-                text.append(f" ({errors} err)", style="#cc3333")
+                st.append(f" ({errors} err)", "red")
 
-            text.append("\n")
+            st.append("\n")
 
-        return text
+        return st
+
+    def _draw_content(self, win, y, x, height, width):
+        """Render cron jobs content into curses window."""
+        st = self._build_content(self.cron_data)
+        lines = st.plain.split("\n")
+        for i, line in enumerate(lines[:height]):
+            if not line:
+                continue
+            attr = self.c_normal
+            if "\u274c" in line or "err)" in line:
+                attr = self.c_error
+            elif "\u2705" in line:
+                attr = self.c_highlight
+            elif "\u23f3" in line:
+                attr = self.c_warn
+            elif "No cron" in line:
+                attr = self.c_dim
+            self._safe_addstr(win, y + i, x, line, attr, width)

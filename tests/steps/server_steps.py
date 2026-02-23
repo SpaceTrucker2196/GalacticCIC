@@ -85,7 +85,6 @@ def step_see_disk(context):
 
 @then("memory should be displayed in red")
 def step_memory_red(context):
-    # Check that the bar color function returns red for >90%
     color = ServerHealthPanel._bar_color(95.0)
     assert color == "red", f"Expected 'red' for 95%, got '{color}'"
 

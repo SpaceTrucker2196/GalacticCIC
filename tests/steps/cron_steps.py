@@ -61,7 +61,6 @@ def step_render_cron(context):
 @then("I should see {count:d} cron jobs listed")
 def step_see_cron_count(context, count):
     text = context.panel_output.plain
-    # Count lines that have job content (non-empty, non-header)
     job_lines = [
         line for line in text.split("\n")
         if line.strip() and "job-" in line
@@ -80,11 +79,9 @@ def step_cron_details(context):
 
 @then('"{name}" should be displayed in red')
 def step_cron_red(context, name):
-    # The panel uses red style for error status jobs
     text = context.panel_output.plain
     assert name in text, f"Job '{name}' not found in output: {text}"
-    # Verify the icon is the error icon
-    assert "\u274c" in text, f"Error icon not found in output"
+    assert "\u274c" in text, "Error icon not found in output"
 
 
 @then("it should show the error icon")

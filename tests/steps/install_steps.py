@@ -8,7 +8,6 @@ from behave import given, when, then
 
 @given("galactic_cic is installed")
 def step_installed(context):
-    # It should be importable since environment.py adds src/ to path
     context.test_data["installed"] = True
 
 
@@ -63,15 +62,12 @@ def step_requirements_exist(context):
 
 @then("textual should be available")
 def step_textual_available(context):
-    try:
-        importlib.import_module("textual")
-    except ImportError:
-        assert False, "textual is not installed"
+    # Replaced by curses (stdlib) — always available
+    import curses  # noqa: F401
 
 
 @then("rich should be available")
 def step_rich_available(context):
-    try:
-        importlib.import_module("rich")
-    except ImportError:
-        assert False, "rich is not installed"
+    # No longer needed — curses handles all rendering
+    # Check that our StyledText replacement exists instead
+    from galactic_cic.panels.base import StyledText  # noqa: F401

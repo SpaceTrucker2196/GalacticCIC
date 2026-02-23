@@ -7,7 +7,6 @@ from galactic_cic.app import CICDashboard
 
 @given("the dashboard is running")
 def step_dashboard_running(context):
-    # We test the app class structure, not a full running instance
     context.test_data["app_class"] = CICDashboard
 
 
@@ -18,7 +17,6 @@ def step_press_key(context, key):
 
 @then("the dashboard should exit")
 def step_should_exit(context):
-    # Verify the quit binding exists
     app_class = context.test_data["app_class"]
     bindings = {b.key: b.action for b in app_class.BINDINGS}
     assert "q" in bindings, "No 'q' binding found"

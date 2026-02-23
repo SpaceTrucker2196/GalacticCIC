@@ -1,67 +1,44 @@
-"""Activity Log panel for GalacticCIC."""
+"""Activity Log panel for curses TUI."""
 
-from datetime import datetime
-
-from textual.widgets import Static, RichLog
-from textual.app import ComposeResult
-from rich.text import Text
-
-from galactic_cic.data.collectors import get_activity_log
+from galactic_cic.panels.base import BasePanel, StyledText
 
 
-class ActivityLogPanel(Static):
+class ActivityLogPanel(BasePanel):
     """Panel showing activity log."""
 
-    DEFAULT_CSS = """
-    ActivityLogPanel {
-        height: 100%;
-        overflow: auto;
-        background: #020a02;
-        border: solid #1a5c1a;
-        color: #33ff33;
-        padding: 0 1;
+    TITLE = "Activity Log"
+
+    TYPE_ICONS = {
+        "ssh": "\U0001f511",
+        "cron": "\u23f0",
+        "openclaw": "\U0001f980",
+        "system": "\U0001f4bb",
     }
 
-    ActivityLogPanel RichLog {
-        height: 100%;
-        overflow: auto;
-        scrollbar-size: 1 1;
-    }
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.border_title = "ACTIVITY LOG"
+    def __init__(self):
+        super().__init__()
+        self.events = []
         self._filter = ""
 
-    def compose(self) -> ComposeResult:
-        yield RichLog(id="activity-log", wrap=True, markup=True)
+    def update(self, events):
+        """Update panel data from collectors."""
+        self.events = events if events is not None else self.events
 
-    async def refresh_data(self) -> None:
-        """Refresh activity log asynchronously."""
-        events = await get_activity_log()
-        log_widget = self.query_one("#activity-log", RichLog)
-        log_widget.clear()
-
-        for event in events:
-            if self._filter and self._filter.lower() not in event.get(
-                "message", ""
-            ).lower():
-                continue
-            line = self._format_event(event)
-            log_widget.write(line)
+    def set_filter(self, filter_text):
+        """Set filter for activity log."""
+        self._filter = filter_text
 
     @staticmethod
-    def _format_event(event: dict) -> Text:
-        """Format a single event for display."""
-        text = Text()
+    def _format_event(event):
+        """Format a single event for display — used by tests."""
+        st = StyledText()
 
         time_str = event.get("time", "??:??")
         message = event.get("message", "")
         level = event.get("level", "info")
         event_type = event.get("type", "")
 
-        text.append(f"  {time_str:>8} ", style="#0d7a0d")
+        st.append(f"  {time_str:>8} ", "dim")
 
         if level == "error":
             style = "red"
@@ -77,14 +54,33 @@ class ActivityLogPanel(Static):
             "system": "\U0001f4bb",
         }
         icon = type_icons.get(event_type, "\u2022")
-        text.append(f"{icon} ", style="#33ff33")
+        st.append(f"{icon} ", "green")
 
         if len(message) > 60:
             message = message[:57] + "..."
-        text.append(message, style=style)
+        st.append(message, style)
 
-        return text
+        return st
 
-    def set_filter(self, filter_text: str) -> None:
-        """Set filter for activity log."""
-        self._filter = filter_text
+    def _draw_content(self, win, y, x, height, width):
+        """Render activity log content into curses window."""
+        filtered = self.events
+        if self._filter:
+            filtered = [
+                e for e in self.events
+                if self._filter.lower() in e.get("message", "").lower()
+                or self._filter.lower() in e.get("type", "").lower()
+            ]
+
+        for i, event in enumerate(filtered[:height]):
+            st = self._format_event(event)
+            line = st.plain
+            level = event.get("level", "info")
+            attr = self.c_normal
+            if level == "error":
+                attr = self.c_error
+            elif level in ("warn", "warning"):
+                attr = self.c_warn
+            else:
+                attr = self.c_highlight
+            self._safe_addstr(win, y + i, x, line, attr, width)

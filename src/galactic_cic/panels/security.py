@@ -1,87 +1,91 @@
-"""Security Status panel for GalacticCIC."""
+"""Security Status panel for curses TUI."""
 
-from textual.widgets import Static
-from rich.text import Text
-
-from galactic_cic.data.collectors import get_security_status
+from galactic_cic.panels.base import BasePanel, StyledText
 
 
-class SecurityPanel(Static):
+class SecurityPanel(BasePanel):
     """Panel showing security status."""
 
-    DEFAULT_CSS = """
-    SecurityPanel {
-        height: 100%;
-        overflow: auto;
-        background: #020a02;
-        border: solid #1a5c1a;
-        color: #33ff33;
-        padding: 0 1;
-    }
-    """
+    TITLE = "Security Status"
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.border_title = "SECURITY STATUS"
+    def __init__(self):
+        super().__init__()
+        self.security_data = {
+            "ssh_intrusions": 0, "listening_ports": 0,
+            "expected_ports": 4, "ufw_active": False,
+            "fail2ban_active": False, "root_login_enabled": True,
+        }
 
-    async def refresh_data(self) -> None:
-        """Refresh security data asynchronously."""
-        data = await get_security_status()
-        content = self._build_content(data)
-        self.update(content)
+    def update(self, data):
+        """Update panel data from collectors."""
+        self.security_data = data or self.security_data
 
-    def _build_content(self, data: dict) -> Text:
-        """Render the panel content."""
-        text = Text()
+    def _build_content(self, data):
+        """Build content as StyledText — used by tests and rendering."""
+        st = StyledText()
 
         intrusions = data.get("ssh_intrusions", 0)
         if intrusions == 0:
-            text.append("  SSH:      ", style="#0d7a0d")
-            text.append("\u2705 No intrusions\n", style="#33ff33")
+            st.append("  SSH:      ", "dim")
+            st.append("No intrusions\n", "green")
         elif intrusions < 10:
-            text.append("  SSH:      ", style="#0d7a0d")
-            text.append(
-                f"\u26a0\ufe0f  {intrusions} failed attempts\n", style="#ccaa00"
-            )
+            st.append("  SSH:      ", "dim")
+            st.append(f"{intrusions} failed attempts\n", "yellow")
         else:
-            text.append("  SSH:      ", style="#0d7a0d")
-            text.append(
-                f"\u274c {intrusions} failed attempts\n", style="#cc3333"
-            )
+            st.append("  SSH:      ", "dim")
+            st.append(f"{intrusions} failed attempts\n", "red")
 
         ports = data.get("listening_ports", 0)
         expected = data.get("expected_ports", 4)
         if ports <= expected:
-            text.append("  Ports:    ", style="#0d7a0d")
-            text.append(
-                f"\u2705 {ports} listening (expected)\n", style="#33ff33"
-            )
+            st.append("  Ports:    ", "dim")
+            st.append(f"{ports} listening (expected)\n", "green")
         else:
-            text.append("  Ports:    ", style="#0d7a0d")
-            text.append(
-                f"\u26a0\ufe0f  {ports} listening ({expected} expected)\n",
-                style="#ccaa00",
-            )
+            st.append("  Ports:    ", "dim")
+            st.append(f"{ports} listening ({expected} expected)\n", "yellow")
 
         ufw_active = data.get("ufw_active", False)
-        text.append("  UFW:      ", style="#0d7a0d")
+        st.append("  UFW:      ", "dim")
         if ufw_active:
-            text.append("\u2705 Active\n", style="#33ff33")
+            st.append("Active\n", "green")
         else:
-            text.append("\u26a0\ufe0f  Inactive\n", style="#ccaa00")
+            st.append("Inactive\n", "yellow")
 
         f2b_active = data.get("fail2ban_active", False)
-        text.append("  Fail2ban: ", style="#0d7a0d")
+        st.append("  Fail2ban: ", "dim")
         if f2b_active:
-            text.append("\u2705 Active\n", style="#33ff33")
+            st.append("Active\n", "green")
         else:
-            text.append("\u274c Inactive\n", style="#cc3333")
+            st.append("Inactive\n", "red")
 
         root_enabled = data.get("root_login_enabled", True)
-        text.append("  RootLogin:", style="#0d7a0d")
+        st.append("  RootLogin:", "dim")
         if root_enabled:
-            text.append(" \u26a0\ufe0f  Enabled\n", style="#ccaa00")
+            st.append(" Enabled\n", "yellow")
         else:
-            text.append(" \u2705 Disabled\n", style="#33ff33")
+            st.append(" Disabled\n", "green")
 
-        return text
+        return st
+
+    def _draw_content(self, win, y, x, height, width):
+        """Render security status content into curses window."""
+        st = self._build_content(self.security_data)
+        lines = st.plain.split("\n")
+        for i, line in enumerate(lines[:height]):
+            if not line:
+                continue
+            attr = self.c_normal
+            if "failed attempts" in line:
+                intrusions = self.security_data.get("ssh_intrusions", 0)
+                if intrusions >= 10:
+                    attr = self.c_error
+                else:
+                    attr = self.c_warn
+            elif "No intrusions" in line or "Active" in line or "Disabled" in line:
+                attr = self.c_highlight
+            elif "Inactive" in line or "Enabled" in line:
+                if "Fail2ban" in line:
+                    attr = self.c_error
+                else:
+                    attr = self.c_warn
+            self._safe_addstr(win, y + i, x, line, attr, width)

@@ -1,7 +1,6 @@
 """Step definitions for Agent Fleet Display feature."""
 
 from behave import given, when, then
-from rich.text import Text
 
 from galactic_cic.panels.agents import AgentFleetPanel
 
@@ -98,5 +97,4 @@ def step_see_error(context):
 
 @then("the dashboard should not crash")
 def step_no_crash(context):
-    # If we got here, the panel rendered without exceptions
     assert context.panel_output is not None

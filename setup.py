@@ -11,10 +11,7 @@ setup(
     package_dir={"": "src"},
     packages=find_packages(where="src"),
     python_requires=">=3.10",
-    install_requires=[
-        "textual>=0.47.0",
-        "rich>=13.0.0",
-    ],
+    install_requires=[],
     extras_require={
         "dev": [
             "behave",

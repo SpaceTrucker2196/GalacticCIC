@@ -1,7 +1,6 @@
 """Step definitions for Activity Log Display feature."""
 
 from behave import given, when, then
-from rich.text import Text
 
 from galactic_cic.panels.activity import ActivityLogPanel
 
@@ -64,7 +63,6 @@ def step_render_single_event(context):
 def step_filter_log(context, filter_text):
     panel = ActivityLogPanel()
     panel.set_filter(filter_text)
-    # Simulate filtering
     filtered = []
     for event in context.test_data["events"]:
         if filter_text.lower() in event.get("message", "").lower() or \
@@ -83,9 +81,8 @@ def step_see_events(context, count):
 
 @then("the event should be displayed in red")
 def step_event_red(context):
-    # Check that the _format_event produces red style for error events
     rendered = context.test_data["rendered"][0]
-    # The Text object has spans with styles - check the message part has red
+    # StyledText stores spans with style strings — check for "red"
     found_red = False
     for span in rendered._spans:
         if "red" in str(span.style):
@@ -96,9 +93,7 @@ def step_event_red(context):
 
 @then("I should only see SSH-related events")
 def step_only_ssh(context):
-    # All rendered events should be SSH type
     assert len(context.test_data["rendered"]) > 0, "No events rendered"
-    # The original events that matched the filter should be ssh-related
     for event in context.test_data["events"]:
         if "ssh" in event.get("type", "").lower() or "ssh" in event.get("message", "").lower():
             continue
