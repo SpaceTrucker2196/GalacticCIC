@@ -70,9 +70,23 @@ CREATE TABLE IF NOT EXISTS port_scans (
     state TEXT DEFAULT 'open'
 );
 
+CREATE TABLE IF NOT EXISTS network_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp REAL NOT NULL,
+    active_connections INTEGER DEFAULT 0,
+    unique_ips INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS dns_cache (
+    ip TEXT PRIMARY KEY,
+    hostname TEXT DEFAULT '',
+    resolved_at REAL NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_agent_ts ON agent_metrics(timestamp);
 CREATE INDEX IF NOT EXISTS idx_server_ts ON server_metrics(timestamp);
 CREATE INDEX IF NOT EXISTS idx_security_ts ON security_metrics(timestamp);
+CREATE INDEX IF NOT EXISTS idx_network_ts ON network_metrics(timestamp);
 """
 
 
@@ -139,12 +153,16 @@ class MetricsDB:
         cutoff = time.time() - max_age_seconds
         tables = [
             "agent_metrics", "server_metrics", "cron_metrics",
-            "security_metrics", "port_scans",
+            "security_metrics", "port_scans", "network_metrics",
         ]
         for table in tables:
             self.conn.execute(
                 f"DELETE FROM {table} WHERE timestamp < ?", (cutoff,)
             )
+        # dns_cache uses resolved_at instead of timestamp
+        self.conn.execute(
+            "DELETE FROM dns_cache WHERE resolved_at < ?", (cutoff,)
+        )
         self.conn.commit()
 
     def close(self):

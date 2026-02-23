@@ -14,6 +14,10 @@ from galactic_cic.data.collectors import (
     get_cron_jobs,
     get_security_status,
     get_activity_log,
+    get_network_activity,
+    get_top_ips,
+    get_ssh_login_summary,
+    resolve_ip,
 )
 from galactic_cic.db.database import MetricsDB
 from galactic_cic.db.recorder import MetricsRecorder
@@ -301,7 +305,34 @@ class CICDashboard:
         # Record to DB and get trend data
         self.recorder.record_server(health)
         server_trends = self.trends.get_server_trends()
-        self.panels[1].update(health, server_trends)
+
+        # Network activity + top IPs
+        network_data = await get_network_activity()
+        self.recorder.record_network(network_data)
+
+        # Get historical connection counts for sparkline
+        network_history = self._get_network_history()
+        network_history.append(network_data.get("active_connections", 0))
+
+        # Resolve top IPs (async with DNS cache)
+        top_ips = await get_top_ips(network_data, db=self.db)
+
+        self.panels[1].update(
+            health, server_trends,
+            network_history=network_history,
+            network_current=network_data.get("active_connections", 0),
+            top_ips=top_ips,
+        )
+
+    def _get_network_history(self, limit=20):
+        """Get recent network connection counts from DB for sparkline."""
+        rows = self.db.fetchall(
+            "SELECT active_connections FROM network_metrics "
+            "ORDER BY timestamp DESC LIMIT ?",
+            (limit,),
+        )
+        # Reverse to chronological order
+        return [row["active_connections"] for row in reversed(rows)]
 
     async def _refresh_cron(self):
         cron_data = await get_cron_jobs()
@@ -311,7 +342,29 @@ class CICDashboard:
     async def _refresh_security(self):
         security_data = await get_security_status()
         self.recorder.record_security(security_data)
-        self.panels[3].update(security_data)
+
+        # SSH login summary with DNS resolution
+        ssh_summary = await get_ssh_login_summary()
+        # Resolve hostnames for SSH IPs
+        for entry_list in (ssh_summary.get("accepted", []), ssh_summary.get("failed", [])):
+            for entry in entry_list:
+                ip = entry.get("ip", "")
+                if ip:
+                    entry["hostname"] = await resolve_ip(ip, db=self.db)
+
+        # Last nmap scan time from DB
+        last_scan = self.db.fetchone(
+            "SELECT timestamp FROM port_scans ORDER BY timestamp DESC LIMIT 1"
+        )
+        last_nmap_time = ""
+        if last_scan:
+            from datetime import datetime
+            last_nmap_time = datetime.fromtimestamp(
+                last_scan["timestamp"]
+            ).strftime("%H:%M:%S")
+
+        self.panels[3].update(security_data, ssh_summary=ssh_summary,
+                              last_nmap_time=last_nmap_time)
 
     async def _refresh_activity(self):
         events = await get_activity_log()

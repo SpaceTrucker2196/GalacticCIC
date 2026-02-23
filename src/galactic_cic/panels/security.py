@@ -16,10 +16,16 @@ class SecurityPanel(BasePanel):
             "fail2ban_active": False, "root_login_enabled": True,
             "ports_detail": [],
         }
+        self.ssh_summary = {"accepted": [], "failed": []}
+        self.last_nmap_time = ""
 
-    def update(self, data):
+    def update(self, data, ssh_summary=None, last_nmap_time=None):
         """Update panel data from collectors."""
         self.security_data = data or self.security_data
+        if ssh_summary is not None:
+            self.ssh_summary = ssh_summary
+        if last_nmap_time is not None:
+            self.last_nmap_time = last_nmap_time
 
     def _build_content(self, data):
         """Build content as StyledText — used by tests and rendering."""
@@ -73,6 +79,57 @@ class SecurityPanel(BasePanel):
         else:
             st.append("  RootLogin: Disabled\n", "green")
 
+        # Last nmap scan time
+        if self.last_nmap_time:
+            st.append(f"  Scan:     {self.last_nmap_time}\n", "dim")
+
+        # SSH Login Summary
+        accepted = self.ssh_summary.get("accepted", [])
+        failed = self.ssh_summary.get("failed", [])
+
+        if accepted:
+            st.append("\n")
+            st.append("  SSH Logins (24h):\n", "dim")
+            table = Table(
+                columns=["IP", "#", "Host", "Last"],
+                widths=[18, 4, 16, 14],
+                borders=False,
+                padding=0,
+                header=False,
+            )
+            for entry in accepted:
+                table.add_row([
+                    entry.get("ip", "?"),
+                    str(entry.get("count", 0)),
+                    entry.get("hostname", "unknown"),
+                    entry.get("last_seen", ""),
+                ])
+            table_st = table.render()
+            for line in table_st.plain.split("\n"):
+                if line.strip():
+                    st.append(f"    {line}\n", "green")
+
+        if failed:
+            st.append("  SSH Failed (24h):\n", "dim")
+            table = Table(
+                columns=["IP", "#", "Host", "Last"],
+                widths=[18, 4, 16, 14],
+                borders=False,
+                padding=0,
+                header=False,
+            )
+            for entry in failed:
+                table.add_row([
+                    entry.get("ip", "?"),
+                    str(entry.get("count", 0)),
+                    entry.get("hostname", "unknown"),
+                    entry.get("last_seen", ""),
+                ], style="red")
+            table_st = table.render()
+            for line in table_st.plain.split("\n"):
+                if line.strip():
+                    st.append(f"    {line}\n", "red")
+
         return st
 
     def _draw_content(self, win, y, x, height, width):
@@ -90,4 +147,7 @@ class SecurityPanel(BasePanel):
                 attr = self.c_error if "Fail2ban" in line else self.c_warn
             elif "Enabled" in line:
                 attr = self.c_warn
+            elif "SSH Failed" in line or (self.ssh_summary.get("failed") and
+                    any(e.get("ip", "") in line for e in self.ssh_summary["failed"])):
+                attr = self.c_error
             self._safe_addstr(win, y + i, x, line, attr, width)

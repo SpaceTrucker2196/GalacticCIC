@@ -1,6 +1,10 @@
 """Server Health panel for curses TUI."""
 
-from galactic_cic.panels.base import BasePanel, StyledText
+from galactic_cic.panels.base import BasePanel, StyledText, Table
+
+
+# Unicode sparkline block characters (8 levels)
+SPARK_CHARS = "▁▂▃▄▅▆▇█"
 
 
 class ServerHealthPanel(BasePanel):
@@ -17,11 +21,20 @@ class ServerHealthPanel(BasePanel):
             "load_avg": [0.0, 0.0, 0.0], "uptime": "unknown",
         }
         self.server_trends = {}
+        self.network_history = []  # list of active_connections counts
+        self.network_current = 0
+        self.top_ips = []
 
-    def update(self, health, server_trends=None):
+    def update(self, health, server_trends=None, network_history=None,
+               network_current=0, top_ips=None):
         """Update panel data from collectors."""
         self.health = health or self.health
         self.server_trends = server_trends or self.server_trends
+        if network_history is not None:
+            self.network_history = network_history
+        self.network_current = network_current
+        if top_ips is not None:
+            self.top_ips = top_ips
 
     def _build_content(self, health, server_trends=None):
         """Build content as StyledText — used by tests and rendering."""
@@ -64,7 +77,54 @@ class ServerHealthPanel(BasePanel):
         st.append("  UP:   ", "dim")
         st.append(f"{uptime}\n", "green")
 
+        # Network activity sparkline
+        sparkline = self._make_sparkline(self.network_history)
+        st.append("\n")
+        st.append("  Net:  ", "dim")
+        st.append(f"{sparkline} {self.network_current} conn\n", "green")
+
+        # Top IPs
+        if self.top_ips:
+            st.append("  Top IPs:\n", "dim")
+            table = Table(
+                columns=["IP", "#", "Host"],
+                widths=[18, 4, 18],
+                borders=False,
+                padding=0,
+                header=False,
+            )
+            for entry in self.top_ips:
+                table.add_row([
+                    entry.get("ip", "?"),
+                    str(entry.get("count", 0)),
+                    entry.get("hostname", "unknown"),
+                ])
+            table_st = table.render()
+            for line in table_st.plain.split("\n"):
+                if line.strip():
+                    st.append(f"    {line}\n", "green")
+
         return st
+
+    @staticmethod
+    def _make_sparkline(values, width=20):
+        """Create a sparkline string from a list of numeric values."""
+        if not values:
+            return SPARK_CHARS[0] * width
+
+        # Take the last `width` values
+        recent = values[-width:]
+        max_val = max(recent) if recent else 1
+        if max_val == 0:
+            return SPARK_CHARS[0] * len(recent)
+
+        sparkline = ""
+        for v in recent:
+            idx = int((v / max_val) * (len(SPARK_CHARS) - 1))
+            idx = min(idx, len(SPARK_CHARS) - 1)
+            sparkline += SPARK_CHARS[idx]
+
+        return sparkline
 
     @staticmethod
     def _make_bar(percent, width=10):

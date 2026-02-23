@@ -71,6 +71,21 @@ class MetricsRecorder:
             )
         self.db.commit()
 
+    def record_network(self, network_data):
+        """Record network activity metrics."""
+        if not network_data:
+            return
+        ts = time.time()
+        self.db.execute(
+            "INSERT INTO network_metrics "
+            "(timestamp, active_connections, unique_ips) "
+            "VALUES (?, ?, ?)",
+            (ts,
+             network_data.get("active_connections", 0),
+             network_data.get("unique_ips", 0)),
+        )
+        self.db.commit()
+
     def record_security(self, security_data):
         """Record security metrics."""
         if not security_data:

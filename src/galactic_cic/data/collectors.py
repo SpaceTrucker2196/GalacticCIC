@@ -3,6 +3,7 @@
 import asyncio
 import json
 import re
+import time
 from datetime import datetime
 from typing import Any
 
@@ -423,6 +424,157 @@ async def get_security_status() -> dict[str, Any]:
         "grep -E '^PermitRootLogin' /etc/ssh/sshd_config 2>/dev/null || echo 'yes'"
     )
     result["root_login_enabled"] = "no" not in stdout.lower()
+
+    return result
+
+
+async def get_network_activity() -> dict[str, Any]:
+    """Parse ss -tnp to count active connections and extract peer IPs."""
+    result: dict[str, Any] = {
+        "active_connections": 0,
+        "unique_ips": 0,
+        "peer_ips": {},  # ip -> count
+    }
+
+    stdout, _, rc = await run_command("ss -tnp 2>/dev/null")
+    if rc != 0 or not stdout.strip():
+        return result
+
+    ip_counts: dict[str, int] = {}
+    for line in stdout.strip().split("\n")[1:]:  # skip header
+        parts = line.split()
+        if len(parts) >= 5:
+            # Peer address is column 4 (0-indexed)
+            peer_addr = parts[4]
+            # Extract IP from addr like 174.224.243.131:443 or [::1]:8080
+            ip = peer_addr.rsplit(":", 1)[0] if ":" in peer_addr else peer_addr
+            # Skip localhost and link-local
+            if ip in ("127.0.0.1", "::1", "[::1]", "*", "0.0.0.0"):
+                continue
+            # Strip brackets from IPv6
+            ip = ip.strip("[]")
+            ip_counts[ip] = ip_counts.get(ip, 0) + 1
+
+    total_conns = sum(ip_counts.values())
+    result["active_connections"] = total_conns
+    result["unique_ips"] = len(ip_counts)
+    result["peer_ips"] = ip_counts
+
+    return result
+
+
+async def resolve_ip(ip: str, db=None) -> str:
+    """Resolve an IP to hostname via dig -x. Uses DB cache with 24h TTL."""
+    # Check cache first
+    if db is not None:
+        row = db.fetchone(
+            "SELECT hostname, resolved_at FROM dns_cache WHERE ip = ?", (ip,)
+        )
+        if row and (time.time() - row["resolved_at"]) < 86400:
+            return row["hostname"]
+
+    # Async DNS resolution via dig
+    stdout, _, rc = await run_command(f"dig -x {ip} +short +time=2 +tries=1 2>/dev/null", timeout=5.0)
+    hostname = ""
+    if rc == 0 and stdout.strip():
+        # dig returns FQDN with trailing dot
+        hostname = stdout.strip().split("\n")[0].rstrip(".")
+
+    if not hostname:
+        # Fallback to host command
+        stdout, _, rc = await run_command(f"host {ip} 2>/dev/null", timeout=5.0)
+        if rc == 0 and "domain name pointer" in stdout:
+            match = re.search(r"pointer\s+(.+)\.", stdout)
+            if match:
+                hostname = match.group(1)
+
+    if not hostname:
+        hostname = "unknown"
+
+    # Cache in DB
+    if db is not None:
+        db.execute(
+            "INSERT OR REPLACE INTO dns_cache (ip, hostname, resolved_at) "
+            "VALUES (?, ?, ?)",
+            (ip, hostname, time.time()),
+        )
+        db.commit()
+
+    return hostname
+
+
+async def get_top_ips(network_data: dict, db=None, limit: int = 3) -> list[dict[str, Any]]:
+    """Get top connected IPs with DNS resolution from network activity data."""
+    peer_ips = network_data.get("peer_ips", {})
+    if not peer_ips:
+        return []
+
+    # Sort by connection count descending
+    sorted_ips = sorted(peer_ips.items(), key=lambda x: x[1], reverse=True)[:limit]
+
+    results = []
+    for ip, count in sorted_ips:
+        hostname = await resolve_ip(ip, db=db)
+        results.append({
+            "ip": ip,
+            "count": count,
+            "hostname": hostname,
+        })
+
+    return results
+
+
+async def get_ssh_login_summary() -> dict[str, Any]:
+    """Parse /var/log/auth.log for SSH accepted/failed logins in last 24h."""
+    result: dict[str, Any] = {
+        "accepted": [],  # list of {ip, count, last_seen}
+        "failed": [],    # list of {ip, count, last_seen}
+    }
+
+    # Get accepted SSH logins
+    stdout, _, rc = await run_command(
+        "grep 'Accepted' /var/log/auth.log 2>/dev/null | tail -500"
+    )
+    accepted_ips: dict[str, dict] = {}
+    if rc == 0 and stdout.strip():
+        for line in stdout.strip().split("\n"):
+            if not line.strip():
+                continue
+            ip_match = re.search(r'from\s+(\d+\.\d+\.\d+\.\d+)', line)
+            time_match = re.match(r'(\w+\s+\d+\s+\d+:\d+:\d+)', line)
+            if ip_match:
+                ip = ip_match.group(1)
+                ts = time_match.group(1) if time_match else ""
+                if ip not in accepted_ips:
+                    accepted_ips[ip] = {"count": 0, "last_seen": ts}
+                accepted_ips[ip]["count"] += 1
+                accepted_ips[ip]["last_seen"] = ts
+
+    # Get failed SSH logins
+    stdout, _, rc = await run_command(
+        "grep -E 'Failed password|Invalid user' /var/log/auth.log 2>/dev/null | tail -500"
+    )
+    failed_ips: dict[str, dict] = {}
+    if rc == 0 and stdout.strip():
+        for line in stdout.strip().split("\n"):
+            if not line.strip():
+                continue
+            ip_match = re.search(r'from\s+(\d+\.\d+\.\d+\.\d+)', line)
+            time_match = re.match(r'(\w+\s+\d+\s+\d+:\d+:\d+)', line)
+            if ip_match:
+                ip = ip_match.group(1)
+                ts = time_match.group(1) if time_match else ""
+                if ip not in failed_ips:
+                    failed_ips[ip] = {"count": 0, "last_seen": ts}
+                failed_ips[ip]["count"] += 1
+                failed_ips[ip]["last_seen"] = ts
+
+    # Sort by count, top 3
+    for ip, info in sorted(accepted_ips.items(), key=lambda x: x[1]["count"], reverse=True)[:3]:
+        result["accepted"].append({"ip": ip, "count": info["count"], "last_seen": info["last_seen"]})
+
+    for ip, info in sorted(failed_ips.items(), key=lambda x: x[1]["count"], reverse=True)[:3]:
+        result["failed"].append({"ip": ip, "count": info["count"], "last_seen": info["last_seen"]})
 
     return result
 
