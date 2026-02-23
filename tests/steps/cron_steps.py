@@ -81,13 +81,13 @@ def step_cron_details(context):
 def step_cron_red(context, name):
     text = context.panel_output.plain
     assert name in text, f"Job '{name}' not found in output: {text}"
-    assert "\u274c" in text, "Error icon not found in output"
+    assert "\u274c" in text or "\u2717" in text or "✗" in text, "Error icon not found in output"
 
 
 @then("it should show the error icon")
 def step_error_icon(context):
     text = context.panel_output.plain
-    assert "\u274c" in text, f"Error icon (\\u274c) not in output: {text}"
+    assert "\u274c" in text or "\u2717" in text or "✗" in text, f"Error icon not in output: {text}"
 
 
 @then('I should see the error count "{count}"')

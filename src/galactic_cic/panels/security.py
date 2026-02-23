@@ -1,6 +1,6 @@
 """Security Status panel for curses TUI."""
 
-from galactic_cic.panels.base import BasePanel, StyledText
+from galactic_cic.panels.base import BasePanel, StyledText, Table
 
 
 class SecurityPanel(BasePanel):
@@ -33,14 +33,27 @@ class SecurityPanel(BasePanel):
         else:
             st.append(f"  SSH:      {intrusions} failed attempts\n", "red")
 
-        # Port details
+        # Port details as table
         ports_detail = data.get("ports_detail", [])
         port_count = len(ports_detail) if ports_detail else data.get("listening_ports", 0)
         st.append(f"  Ports:    {port_count} open\n", "green")
-        for port_info in ports_detail:
-            port = port_info.get("port", "?")
-            service = port_info.get("service", "unknown")
-            st.append(f"    {port:>5} {service}\n", "green")
+
+        if ports_detail:
+            table = Table(
+                columns=["Port", "Service"],
+                widths=[7, 16],
+                borders=False,
+                padding=0,
+                header=False,
+            )
+            for port_info in ports_detail:
+                port = str(port_info.get("port", "?"))
+                service = port_info.get("service", "unknown")
+                table.add_row([port, service])
+            table_st = table.render()
+            for line in table_st.plain.split("\n"):
+                if line.strip():
+                    st.append(f"    {line}\n", "green")
 
         ufw_active = data.get("ufw_active", False)
         if ufw_active:

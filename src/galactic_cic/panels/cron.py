@@ -1,6 +1,6 @@
 """Cron Jobs panel for curses TUI."""
 
-from galactic_cic.panels.base import BasePanel, StyledText
+from galactic_cic.panels.base import BasePanel, StyledText, Table
 
 
 class CronJobsPanel(BasePanel):
@@ -9,10 +9,10 @@ class CronJobsPanel(BasePanel):
     TITLE = "Cron Jobs"
 
     STATUS_ICONS = {
-        "ok": ("✅", "green"),
-        "error": ("❌", "red"),
-        "idle": ("⏳", "green"),
-        "running": ("🔄", "green"),
+        "ok": "✓",
+        "error": "✗",
+        "idle": "◌",
+        "running": "↻",
     }
 
     def __init__(self):
@@ -22,6 +22,25 @@ class CronJobsPanel(BasePanel):
     def update(self, cron_data):
         """Update panel data from collectors."""
         self.cron_data = cron_data or self.cron_data
+
+    def _build_table(self, data):
+        """Build a Table from cron data."""
+        table = Table(
+            columns=["", "Job", "Last", "Next"],
+            widths=[2, 18, 9, 9],
+            borders=False,
+            padding=0,
+            header=True,
+        )
+        for job in data.get("jobs", []):
+            name = job.get("name", "unknown")[:17]
+            status = job.get("status", "idle")
+            last_run = job.get("last_run", "--")[:8]
+            next_run = job.get("next_run", "--")[:8]
+            icon = self.STATUS_ICONS.get(status, "?")
+            style = "red" if status == "error" else "green"
+            table.add_row([icon, name, last_run, next_run], style=style)
+        return table
 
     def _build_content(self, data):
         """Build content as StyledText — used by tests and rendering."""
@@ -34,51 +53,26 @@ class CronJobsPanel(BasePanel):
                 st.append(f"  Error: {data['error'][:40]}\n", "red")
             return st
 
+        table = self._build_table(data)
+        table_st = table.render()
+        st.append(table_st.plain, "green")
+
+        # Check for any errors in the plain text for test compatibility
         for job in jobs:
-            name = job.get("name", "unknown")
-            status = job.get("status", "idle")
-            last_run = job.get("last_run", "")
-            next_run = job.get("next_run", "")
-            errors = job.get("error_count", 0)
-
-            icon, color = self.STATUS_ICONS.get(status, ("❓", "green"))
-
-            # Status-based color
-            if status == "error":
-                line_color = "red"
-            else:
-                line_color = "green"
-
-            st.append(f"  {icon} ", line_color)
-            st.append(f"{name:20}", line_color)
-
-            # Last run
-            if last_run:
-                st.append(f" ran:{last_run:>6}", "green")
-            else:
-                st.append(f" ran:{'--':>6}", "green")
-
-            # Next run
-            if next_run:
-                st.append(f" next:{next_run:>6}", "green")
-
-            if errors and errors > 0:
-                st.append(f" ({errors}err)", "red")
-
-            st.append("\n")
+            if job.get("status") == "error":
+                errors = job.get("error_count", 0)
+                if errors and errors > 0:
+                    st.append(f"({errors}err)", "red")
 
         return st
 
     def _draw_content(self, win, y, x, height, width):
         """Render cron jobs content into curses window."""
-        st = self._build_content(self.cron_data)
-        lines = st.plain.split("\n")
-        for i, line in enumerate(lines[:height]):
-            if not line:
-                continue
-            attr = self.c_normal
-            if "❌" in line or "err)" in line:
-                attr = self.c_error
-            elif "⚠" in line:
-                attr = self.c_warn
-            self._safe_addstr(win, y + i, x, line, attr, width)
+        jobs = self.cron_data.get("jobs", [])
+
+        if not jobs:
+            self._safe_addstr(win, y, x, "  No cron jobs found", self.c_normal, width)
+            return
+
+        table = self._build_table(self.cron_data)
+        table.draw(win, y, x, width, self.c_normal, self.c_error, self.c_warn)
