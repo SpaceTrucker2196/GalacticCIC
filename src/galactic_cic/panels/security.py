@@ -33,21 +33,21 @@ class SecurityPanel(BasePanel):
 
         intrusions = data.get("ssh_intrusions", 0)
         if intrusions == 0:
-            st.append("  SSH:      No intrusions\n", "green")
+            st.append("  SSH:  No intrusions\n", "green")
         elif intrusions < 10:
-            st.append(f"  SSH:      {intrusions} failed attempts\n", "yellow")
+            st.append(f"  SSH:  {intrusions} failed attempts\n", "yellow")
         else:
-            st.append(f"  SSH:      {intrusions} failed attempts\n", "red")
+            st.append(f"  SSH:  {intrusions} failed attempts\n", "red")
 
         # Port details as table
         ports_detail = data.get("ports_detail", [])
         port_count = len(ports_detail) if ports_detail else data.get("listening_ports", 0)
-        st.append(f"  Ports:    {port_count} open\n", "green")
+        st.append(f"  Ports: {port_count} open\n", "green")
 
         if ports_detail:
             table = Table(
                 columns=["Port", "Service"],
-                widths=[7, 16],
+                widths=[7, 20],
                 borders=False,
                 padding=0,
                 header=False,
@@ -61,38 +61,17 @@ class SecurityPanel(BasePanel):
                 if line.strip():
                     st.append(f"    {line}\n", "green")
 
-        ufw_active = data.get("ufw_active", False)
-        if ufw_active:
-            st.append("  UFW:      Active\n", "green")
-        else:
-            st.append("  UFW:      Inactive\n", "yellow")
-
-        f2b_active = data.get("fail2ban_active", False)
-        if f2b_active:
-            st.append("  Fail2ban: Active\n", "green")
-        else:
-            st.append("  Fail2ban: Inactive\n", "red")
-
-        root_enabled = data.get("root_login_enabled", True)
-        if root_enabled:
-            st.append("  RootLogin: Enabled\n", "yellow")
-        else:
-            st.append("  RootLogin: Disabled\n", "green")
-
-        # Last nmap scan time
-        if self.last_nmap_time:
-            st.append(f"  Scan:     {self.last_nmap_time}\n", "dim")
+        st.append("\n")
 
         # SSH Login Summary
         accepted = self.ssh_summary.get("accepted", [])
         failed = self.ssh_summary.get("failed", [])
 
         if accepted:
-            st.append("\n")
-            st.append("  SSH Logins (24h):\n", "dim")
+            st.append("  SSH Logins (24h):\n", "green")
             table = Table(
                 columns=["IP", "#", "Host", "Last"],
-                widths=[18, 4, 16, 14],
+                widths=[18, 4, 14, 10],
                 borders=False,
                 padding=0,
                 header=False,
@@ -101,19 +80,19 @@ class SecurityPanel(BasePanel):
                 table.add_row([
                     entry.get("ip", "?"),
                     str(entry.get("count", 0)),
-                    entry.get("hostname", "unknown"),
-                    entry.get("last_seen", ""),
+                    entry.get("hostname", "unknown")[:13],
+                    entry.get("last_seen", "")[:9],
                 ])
             table_st = table.render()
             for line in table_st.plain.split("\n"):
                 if line.strip():
-                    st.append(f"    {line}\n", "green")
+                    st.append(f"   {line}\n", "green")
 
+        st.append("  SSH Failed (24h):\n", "green")
         if failed:
-            st.append("  SSH Failed (24h):\n", "dim")
             table = Table(
                 columns=["IP", "#", "Host", "Last"],
-                widths=[18, 4, 16, 14],
+                widths=[18, 4, 14, 10],
                 borders=False,
                 padding=0,
                 header=False,
@@ -122,13 +101,32 @@ class SecurityPanel(BasePanel):
                 table.add_row([
                     entry.get("ip", "?"),
                     str(entry.get("count", 0)),
-                    entry.get("hostname", "unknown"),
-                    entry.get("last_seen", ""),
+                    entry.get("hostname", "unknown")[:13],
+                    entry.get("last_seen", "")[:9],
                 ], style="red")
             table_st = table.render()
             for line in table_st.plain.split("\n"):
                 if line.strip():
-                    st.append(f"    {line}\n", "red")
+                    st.append(f"   {line}\n", "red")
+        else:
+            st.append("   (none)\n", "green")
+
+        st.append("\n")
+
+        # UFW + Fail2ban on same line
+        ufw_status = "Active" if data.get("ufw_active", False) else "Inactive"
+        f2b_status = "Active" if data.get("fail2ban_active", False) else "Inactive"
+        ufw_style = "green" if data.get("ufw_active") else "yellow"
+        f2b_style = "green" if data.get("fail2ban_active") else "red"
+        st.append(f"  UFW: {ufw_status}", ufw_style)
+        st.append(f"  Fail2ban: {f2b_status}\n", f2b_style)
+
+        # Root login
+        root_enabled = data.get("root_login_enabled", True)
+        if root_enabled:
+            st.append("  RootLogin: Enabled\n", "yellow")
+        else:
+            st.append("  RootLogin: Disabled\n", "green")
 
         return st
 
@@ -144,7 +142,10 @@ class SecurityPanel(BasePanel):
                 intrusions = self.security_data.get("ssh_intrusions", 0)
                 attr = self.c_error if intrusions >= 10 else self.c_warn
             elif "Inactive" in line:
-                attr = self.c_error if "Fail2ban" in line else self.c_warn
+                if "Fail2ban" in line:
+                    attr = self.c_error
+                elif "UFW" in line:
+                    attr = self.c_warn
             elif "Enabled" in line:
                 attr = self.c_warn
             elif "SSH Failed" in line or (self.ssh_summary.get("failed") and

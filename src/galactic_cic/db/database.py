@@ -165,6 +165,47 @@ class MetricsDB:
         )
         self.conn.commit()
 
+    def get_recent_server_metrics(self, hours=1, limit=20):
+        """Get recent server metrics for sparklines."""
+        cutoff = time.time() - (hours * 3600)
+        return self.conn.execute(
+            "SELECT cpu_percent, mem_used_mb, mem_total_mb, "
+            "disk_used_gb, disk_total_gb "
+            "FROM server_metrics WHERE timestamp > ? "
+            "ORDER BY timestamp DESC LIMIT ?",
+            (cutoff, limit),
+        ).fetchall()
+
+    def get_server_averages(self, hours=24):
+        """Get 24h averages for sparkline reference lines."""
+        cutoff = time.time() - (hours * 3600)
+        return self.conn.execute(
+            "SELECT AVG(cpu_percent), "
+            "AVG(mem_used_mb * 100.0 / NULLIF(mem_total_mb, 0)), "
+            "AVG(disk_used_gb * 100.0 / NULLIF(disk_total_gb, 0)) "
+            "FROM server_metrics WHERE timestamp > ?",
+            (cutoff,),
+        ).fetchone()
+
+    def get_recent_network_metrics(self, hours=1, limit=20):
+        """Get recent network metrics for sparklines."""
+        cutoff = time.time() - (hours * 3600)
+        return self.conn.execute(
+            "SELECT active_connections FROM network_metrics "
+            "WHERE timestamp > ? ORDER BY timestamp DESC LIMIT ?",
+            (cutoff, limit),
+        ).fetchall()
+
+    def get_network_average(self, hours=24):
+        """Get 24h average network connections."""
+        cutoff = time.time() - (hours * 3600)
+        row = self.conn.execute(
+            "SELECT AVG(active_connections) FROM network_metrics "
+            "WHERE timestamp > ?",
+            (cutoff,),
+        ).fetchone()
+        return row[0] if row and row[0] else 0
+
     def close(self):
         """Close the database connection."""
         if self.conn:

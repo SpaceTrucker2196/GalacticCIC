@@ -15,10 +15,22 @@ class AgentFleetPanel(BasePanel):
             "sessions": 0, "model": "unknown", "gateway_status": "unknown",
         }
 
-    def update(self, agents_data, status_data):
+    def update(self, agents_data, status_data, tokens_per_hour=None):
         """Update panel data from collectors."""
         self.agents_data = agents_data or self.agents_data
         self.status_data = status_data or self.status_data
+        # Merge tokens_per_hour into agent data for display
+        if tokens_per_hour:
+            for agent in self.agents_data.get("agents", []):
+                name = agent.get("name", "")
+                tph = tokens_per_hour.get(name, 0)
+                if tph > 0:
+                    if tph >= 1000:
+                        agent["tokens_per_hour"] = f"{tph // 1000}k"
+                    else:
+                        agent["tokens_per_hour"] = str(tph)
+                else:
+                    agent["tokens_per_hour"] = "--"
 
     def _build_table(self, agents_data):
         """Build a Table from agent data."""

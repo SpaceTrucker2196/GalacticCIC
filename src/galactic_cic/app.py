@@ -310,9 +310,36 @@ class CICDashboard:
         network_data = await get_network_activity()
         self.recorder.record_network(network_data)
 
-        # Get historical connection counts for sparkline
-        network_history = self._get_network_history()
+        # Historical data for Tufte sparklines
+        server_hist = self.db.get_recent_server_metrics(hours=1, limit=20)
+        server_avgs = self.db.get_server_averages(hours=24)
+        net_hist = self.db.get_recent_network_metrics(hours=1, limit=20)
+        net_avg = self.db.get_network_average(hours=24)
+
+        # Build sparkline data arrays (chronological order)
+        cpu_history = [row["cpu_percent"] for row in reversed(server_hist)]
+        mem_history = [
+            (row["mem_used_mb"] * 100.0 / row["mem_total_mb"])
+            if row["mem_total_mb"] > 0 else 0
+            for row in reversed(server_hist)
+        ]
+        disk_history = [
+            (row["disk_used_gb"] * 100.0 / row["disk_total_gb"])
+            if row["disk_total_gb"] > 0 else 0
+            for row in reversed(server_hist)
+        ]
+        network_history = [row["active_connections"] for row in reversed(net_hist)]
+
+        # Append current readings
+        cpu_history.append(health.get("cpu_percent", 0))
+        mem_history.append(health.get("mem_percent", 0))
+        disk_history.append(health.get("disk_percent", 0))
         network_history.append(network_data.get("active_connections", 0))
+
+        # Extract averages
+        cpu_avg = server_avgs[0] if server_avgs and server_avgs[0] else None
+        mem_avg = server_avgs[1] if server_avgs and server_avgs[1] else None
+        disk_avg = server_avgs[2] if server_avgs and server_avgs[2] else None
 
         # Resolve top IPs (async with DNS cache)
         top_ips = await get_top_ips(network_data, db=self.db)
@@ -322,17 +349,14 @@ class CICDashboard:
             network_history=network_history,
             network_current=network_data.get("active_connections", 0),
             top_ips=top_ips,
+            cpu_history=cpu_history,
+            mem_history=mem_history,
+            disk_history=disk_history,
+            cpu_avg=cpu_avg,
+            mem_avg=mem_avg,
+            disk_avg=disk_avg,
+            net_avg=net_avg,
         )
-
-    def _get_network_history(self, limit=20):
-        """Get recent network connection counts from DB for sparkline."""
-        rows = self.db.fetchall(
-            "SELECT active_connections FROM network_metrics "
-            "ORDER BY timestamp DESC LIMIT ?",
-            (limit,),
-        )
-        # Reverse to chronological order
-        return [row["active_connections"] for row in reversed(rows)]
 
     async def _refresh_cron(self):
         cron_data = await get_cron_jobs()

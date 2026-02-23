@@ -8,7 +8,7 @@ SPARK_CHARS = "▁▂▃▄▅▆▇█"
 
 
 class ServerHealthPanel(BasePanel):
-    """Panel showing server health metrics."""
+    """Panel showing server health metrics with Tufte sparklines."""
 
     TITLE = "Server Health"
 
@@ -21,12 +21,23 @@ class ServerHealthPanel(BasePanel):
             "load_avg": [0.0, 0.0, 0.0], "uptime": "unknown",
         }
         self.server_trends = {}
-        self.network_history = []  # list of active_connections counts
+        self.network_history = []
         self.network_current = 0
         self.top_ips = []
+        # Sparkline history arrays
+        self.cpu_history = []
+        self.mem_history = []
+        self.disk_history = []
+        # 24h averages for reference lines
+        self.cpu_avg = None
+        self.mem_avg = None
+        self.disk_avg = None
+        self.net_avg = None
 
     def update(self, health, server_trends=None, network_history=None,
-               network_current=0, top_ips=None):
+               network_current=0, top_ips=None, cpu_history=None,
+               mem_history=None, disk_history=None, cpu_avg=None,
+               mem_avg=None, disk_avg=None, net_avg=None):
         """Update panel data from collectors."""
         self.health = health or self.health
         self.server_trends = server_trends or self.server_trends
@@ -35,6 +46,16 @@ class ServerHealthPanel(BasePanel):
         self.network_current = network_current
         if top_ips is not None:
             self.top_ips = top_ips
+        if cpu_history is not None:
+            self.cpu_history = cpu_history
+        if mem_history is not None:
+            self.mem_history = mem_history
+        if disk_history is not None:
+            self.disk_history = disk_history
+        self.cpu_avg = cpu_avg
+        self.mem_avg = mem_avg
+        self.disk_avg = disk_avg
+        self.net_avg = net_avg
 
     def _build_content(self, health, server_trends=None):
         """Build content as StyledText — used by tests and rendering."""
@@ -42,49 +63,58 @@ class ServerHealthPanel(BasePanel):
         if server_trends is None:
             server_trends = {}
 
+        # CPU sparkline
         cpu = health.get("cpu_percent", 0)
         cpu_trend = server_trends.get("cpu_trend", "")
-        st.append("  CPU:  ", "dim")
-        st.append(self._make_bar(cpu), self._bar_color(cpu))
+        sparkline = self._make_sparkline(self.cpu_history)
+        st.append("  CPU:  ", "green")
+        st.append(sparkline, self._bar_color(cpu))
+        avg_str = f"  avg:{self.cpu_avg:.0f}%" if self.cpu_avg is not None else ""
         trend_str = f" {cpu_trend}" if cpu_trend else ""
-        st.append(f"  {cpu:4.0f}%{trend_str}\n")
+        st.append(f"  {cpu:3.0f}%{trend_str}{avg_str}\n", "green")
 
+        # MEM sparkline
         mem = health.get("mem_percent", 0)
         mem_used = health.get("mem_used", "?")
         mem_total = health.get("mem_total", "?")
         mem_trend = server_trends.get("mem_trend", "")
-        st.append("  MEM:  ", "dim")
-        st.append(self._make_bar(mem), self._bar_color(mem))
+        sparkline = self._make_sparkline(self.mem_history)
+        st.append("  MEM:  ", "green")
+        st.append(sparkline, self._bar_color(mem))
+        avg_str = f"  avg:{self.mem_avg:.0f}%" if self.mem_avg is not None else ""
         trend_str = f" {mem_trend}" if mem_trend else ""
-        st.append(f"  {mem:4.0f}%{trend_str}  {mem_used}/{mem_total}\n")
+        st.append(f"  {mem:3.0f}%{trend_str}{avg_str}  {mem_used}/{mem_total}\n", "green")
 
+        # DISK sparkline
         disk = health.get("disk_percent", 0)
         disk_used = health.get("disk_used", "?")
         disk_total = health.get("disk_total", "?")
         disk_trend = server_trends.get("disk_trend", "")
-        st.append("  DISK: ", "dim")
-        st.append(self._make_bar(disk), self._bar_color(disk))
+        sparkline = self._make_sparkline(self.disk_history)
+        st.append("  DISK: ", "green")
+        st.append(sparkline, self._bar_color(disk))
+        avg_str = f"  avg:{self.disk_avg:.0f}%" if self.disk_avg is not None else ""
         trend_str = f" {disk_trend}" if disk_trend else ""
-        st.append(f"  {disk:4.0f}%{trend_str}  {disk_used}/{disk_total}\n")
+        st.append(f"  {disk:3.0f}%{trend_str}{avg_str}  {disk_used}/{disk_total}\n", "green")
 
-        st.append("\n")
-
-        load = health.get("load_avg", [0, 0, 0])
-        st.append("  LOAD: ", "dim")
-        st.append(f"{load[0]:.2f} {load[1]:.2f} {load[2]:.2f}\n", "green")
-
-        uptime = health.get("uptime", "unknown")
-        st.append("  UP:   ", "dim")
-        st.append(f"{uptime}\n", "green")
-
-        # Network activity sparkline
+        # NET sparkline
         sparkline = self._make_sparkline(self.network_history)
+        st.append("  NET:  ", "green")
+        st.append(sparkline, "green")
+        avg_str = f"  avg:{self.net_avg:.0f}" if self.net_avg is not None else ""
+        st.append(f"  {self.network_current:3d}{avg_str}\n", "green")
+
         st.append("\n")
-        st.append("  Net:  ", "dim")
-        st.append(f"{sparkline} {self.network_current} conn\n", "green")
+
+        # LOAD + UP on same line
+        load = health.get("load_avg", [0, 0, 0])
+        uptime = health.get("uptime", "unknown")
+        st.append(f"  LOAD: {load[0]:.2f} {load[1]:.2f} {load[2]:.2f}", "green")
+        st.append(f"   UP: {uptime}\n", "green")
 
         # Top IPs
         if self.top_ips:
+            st.append("\n")
             st.append("  Top IPs:\n", "dim")
             table = Table(
                 columns=["IP", "#", "Host"],
@@ -107,8 +137,8 @@ class ServerHealthPanel(BasePanel):
         return st
 
     @staticmethod
-    def _make_sparkline(values, width=20):
-        """Create a sparkline string from a list of numeric values."""
+    def _make_sparkline(values, width=16):
+        """Create a Tufte sparkline from a list of numeric values."""
         if not values:
             return SPARK_CHARS[0] * width
 
@@ -151,21 +181,17 @@ class ServerHealthPanel(BasePanel):
             if not line:
                 continue
             attr = self.c_normal
-            # Color bars based on percentage thresholds
+            # Color sparklines based on percentage thresholds
             if "CPU:" in line or "MEM:" in line or "DISK:" in line:
-                attr = self.c_normal
-                if "\u2588" in line:
-                    try:
-                        pct_str = line.split("%")[0].split()[-1]
-                        pct = float(pct_str)
-                        if pct >= 90:
-                            attr = self.c_error
-                        elif pct >= 70:
-                            attr = self.c_warn
-                        else:
-                            attr = self.c_normal
-                    except (ValueError, IndexError):
+                try:
+                    pct_str = line.split("%")[0].split()[-1]
+                    pct = float(pct_str)
+                    if pct >= 90:
+                        attr = self.c_error
+                    elif pct >= 70:
+                        attr = self.c_warn
+                    else:
                         attr = self.c_normal
-            elif "LOAD:" in line or "UP:" in line:
-                attr = self.c_normal
+                except (ValueError, IndexError):
+                    attr = self.c_normal
             self._safe_addstr(win, y + i, x, line, attr, width)
