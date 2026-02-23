@@ -18,6 +18,10 @@ from galactic_cic.data.collectors import (
     get_top_ips,
     get_ssh_login_summary,
     resolve_ip,
+    scan_attacker_ip,
+    get_ip_geolocation,
+    get_openclaw_logs,
+    get_error_summary,
 )
 from galactic_cic.db.database import MetricsDB
 from galactic_cic.db.recorder import MetricsRecorder
@@ -369,12 +373,28 @@ class CICDashboard:
 
         # SSH login summary with DNS resolution
         ssh_summary = await get_ssh_login_summary()
-        # Resolve hostnames for SSH IPs
+
+        # Collect all IPs for geolocation
+        all_ips = set()
         for entry_list in (ssh_summary.get("accepted", []), ssh_summary.get("failed", [])):
             for entry in entry_list:
                 ip = entry.get("ip", "")
                 if ip:
                     entry["hostname"] = await resolve_ip(ip, db=self.db)
+                    all_ips.add(ip)
+
+        # Geolocation for all SSH IPs
+        geo_data = {}
+        for ip in all_ips:
+            geo_data[ip] = await get_ip_geolocation(ip, db=self.db)
+
+        # Nmap scan top 3 failed SSH source IPs (async, cached 6h)
+        attacker_scans = {}
+        failed_entries = ssh_summary.get("failed", [])[:3]
+        for entry in failed_entries:
+            ip = entry.get("ip", "")
+            if ip:
+                attacker_scans[ip] = await scan_attacker_ip(ip, db=self.db)
 
         # Last nmap scan time from DB
         last_scan = self.db.fetchone(
@@ -388,11 +408,21 @@ class CICDashboard:
             ).strftime("%H:%M:%S")
 
         self.panels[3].update(security_data, ssh_summary=ssh_summary,
-                              last_nmap_time=last_nmap_time)
+                              last_nmap_time=last_nmap_time,
+                              attacker_scans=attacker_scans,
+                              geo_data=geo_data)
 
     async def _refresh_activity(self):
         events = await get_activity_log()
-        self.panels[4].update(events)
+        # Merge in openclaw log entries
+        oc_logs = await get_openclaw_logs(limit=20)
+        events = events + oc_logs
+        # Sort by time descending (most recent first)
+        events.sort(key=lambda e: e.get("time", ""), reverse=True)
+        # Get error summary (uses SSH data from last security refresh)
+        ssh_summary = self.panels[3].ssh_summary if hasattr(self.panels[3], 'ssh_summary') else None
+        errors = await get_error_summary(ssh_summary=ssh_summary)
+        self.panels[4].update(events, errors=errors)
 
     def _handle_key(self, key):
         """Handle keyboard input. Returns False to quit."""

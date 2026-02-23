@@ -2,8 +2,11 @@
 
 import asyncio
 import json
+import os
 import re
 import time
+import urllib.request
+import urllib.error
 from datetime import datetime
 from typing import Any
 
@@ -630,3 +633,204 @@ async def get_activity_log(limit: int = 50) -> list[dict[str, Any]]:
                     })
 
     return events[:limit]
+
+
+# ── Geo rate-limiter (1 request/sec for ip-api.com) ──
+_geo_last_request = 0.0
+_geo_lock = asyncio.Lock()
+
+
+async def get_ip_geolocation(ip: str, db=None) -> dict[str, str]:
+    """Fetch IP geolocation from ip-api.com. Cached 7 days in geo_cache table."""
+    global _geo_last_request
+
+    # Check cache first
+    if db is not None:
+        row = db.fetchone(
+            "SELECT country_code, city, isp, resolved_at FROM geo_cache WHERE ip = ?",
+            (ip,),
+        )
+        if row and (time.time() - row["resolved_at"]) < 7 * 86400:
+            return {
+                "country_code": row["country_code"],
+                "city": row["city"],
+                "isp": row["isp"],
+            }
+
+    result = {"country_code": "?", "city": "", "isp": ""}
+
+    # Rate limit: 1 req/sec
+    async with _geo_lock:
+        now = time.time()
+        wait = 1.0 - (now - _geo_last_request)
+        if wait > 0:
+            await asyncio.sleep(wait)
+        _geo_last_request = time.time()
+
+    # Fetch from ip-api.com using urllib (pure stdlib)
+    try:
+        url = f"http://ip-api.com/json/{ip}?fields=country,countryCode,city,isp"
+        req = urllib.request.Request(url, headers={"User-Agent": "GalacticCIC/1.0"})
+
+        loop = asyncio.get_event_loop()
+        response = await asyncio.wait_for(
+            loop.run_in_executor(
+                None, lambda: urllib.request.urlopen(req, timeout=5)
+            ),
+            timeout=5.0,
+        )
+        data = json.loads(response.read().decode())
+        result["country_code"] = data.get("countryCode", "?")
+        result["city"] = data.get("city", "")
+        result["isp"] = data.get("isp", "")
+    except Exception:
+        pass
+
+    # Cache in DB
+    if db is not None:
+        db.execute(
+            "INSERT OR REPLACE INTO geo_cache (ip, country_code, city, isp, resolved_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (ip, result["country_code"], result["city"], result["isp"], time.time()),
+        )
+        db.commit()
+
+    return result
+
+
+async def scan_attacker_ip(ip: str, db=None) -> dict[str, str]:
+    """Nmap scan a single attacker IP. Cached 6h in attacker_scans table."""
+    # Check cache first
+    if db is not None:
+        row = db.fetchone(
+            "SELECT open_ports, os_guess, scanned_at FROM attacker_scans WHERE ip = ?",
+            (ip,),
+        )
+        if row and (time.time() - row["scanned_at"]) < 6 * 3600:
+            return {
+                "open_ports": row["open_ports"],
+                "os_guess": row["os_guess"],
+            }
+
+    result = {"open_ports": "", "os_guess": ""}
+
+    stdout, stderr, rc = await run_command(
+        f"nmap -sT --top-ports 20 {ip} 2>/dev/null", timeout=10.0
+    )
+    if rc == 0 and stdout:
+        ports = []
+        for line in stdout.split("\n"):
+            line = line.strip()
+            if "/tcp" in line and "open" in line:
+                port = line.split("/")[0]
+                ports.append(port)
+        result["open_ports"] = ",".join(ports)
+
+        # Try to parse OS guess
+        for line in stdout.split("\n"):
+            if "OS details:" in line or "Running:" in line:
+                os_info = line.split(":", 1)[1].strip()
+                result["os_guess"] = os_info[:30]
+                break
+        if not result["os_guess"]:
+            # Guess from service banners
+            if any(p in ports for p in ["22"]):
+                result["os_guess"] = "Linux"
+
+    # Cache in DB
+    if db is not None:
+        db.execute(
+            "INSERT OR REPLACE INTO attacker_scans (ip, open_ports, os_guess, scanned_at) "
+            "VALUES (?, ?, ?, ?)",
+            (ip, result["open_ports"], result["os_guess"], time.time()),
+        )
+        db.commit()
+
+    return result
+
+
+async def get_openclaw_logs(limit: int = 20) -> list[dict[str, Any]]:
+    """Tail openclaw logs from filesystem or CLI."""
+    events: list[dict[str, Any]] = []
+
+    # Try filesystem first
+    log_dir = os.path.expanduser("~/.openclaw/logs")
+    stdout, _, rc = await run_command(
+        f"tail -20 {log_dir}/*.log 2>/dev/null", timeout=5.0
+    )
+    if rc != 0 or not stdout.strip():
+        # Fallback to openclaw CLI
+        stdout, _, rc = await run_command(
+            "openclaw logs 2>/dev/null", timeout=5.0
+        )
+
+    if rc == 0 and stdout.strip():
+        for line in stdout.strip().split("\n")[-limit:]:
+            line = line.strip()
+            if not line or line.startswith("==>"):
+                continue
+            # Try to parse timestamp
+            time_str = datetime.now().strftime("%H:%M")
+            ts_match = re.match(
+                r'(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2})', line
+            )
+            if ts_match:
+                try:
+                    time_str = ts_match.group(1).split("T")[-1].split(" ")[-1][:5]
+                except Exception:
+                    pass
+            # Detect level
+            level = "info"
+            line_lower = line.lower()
+            if "error" in line_lower or "fail" in line_lower:
+                level = "error"
+            elif "warn" in line_lower:
+                level = "warning"
+
+            events.append({
+                "time": time_str,
+                "message": line[:80],
+                "type": "openclaw",
+                "level": level,
+            })
+
+    return events[-limit:]
+
+
+async def get_error_summary(ssh_summary=None) -> list[dict[str, Any]]:
+    """Aggregate errors from cron jobs, SSH failures, and openclaw logs."""
+    errors: list[dict[str, Any]] = []
+
+    # 1. Cron errors from openclaw cron list
+    cron_data = await get_cron_jobs()
+    for job in cron_data.get("jobs", []):
+        if job.get("status") == "error":
+            errors.append({
+                "time": job.get("last_run", "??:??")[-5:],
+                "message": f"{job['name']}: delivery failed",
+                "type": "cron",
+                "level": "error",
+            })
+
+    # 2. SSH failed summary
+    if ssh_summary:
+        for entry in ssh_summary.get("failed", []):
+            ip = entry.get("ip", "?")
+            count = entry.get("count", 0)
+            if count >= 5:
+                ts = entry.get("last_seen", "")
+                time_str = ts[-8:-3] if len(ts) >= 8 else "??:??"
+                errors.append({
+                    "time": time_str,
+                    "message": f"{count} failed attempts from {ip}",
+                    "type": "ssh",
+                    "level": "error",
+                })
+
+    # 3. Openclaw log errors
+    oc_logs = await get_openclaw_logs(limit=20)
+    for ev in oc_logs:
+        if ev.get("level") == "error":
+            errors.append(ev)
+
+    return errors

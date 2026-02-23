@@ -4,7 +4,7 @@ from galactic_cic.panels.base import BasePanel, StyledText
 
 
 class ActivityLogPanel(BasePanel):
-    """Panel showing activity log."""
+    """Panel showing activity log with ERRORS (upper) and RECENT (lower) sections."""
 
     TITLE = "Activity Log"
 
@@ -18,11 +18,14 @@ class ActivityLogPanel(BasePanel):
     def __init__(self):
         super().__init__()
         self.events = []
+        self.errors = []
         self._filter = ""
 
-    def update(self, events):
+    def update(self, events, errors=None):
         """Update panel data from collectors."""
         self.events = events if events is not None else self.events
+        if errors is not None:
+            self.errors = errors
 
     def set_filter(self, filter_text):
         """Set filter for activity log."""
@@ -62,8 +65,24 @@ class ActivityLogPanel(BasePanel):
 
         return st
 
+    @staticmethod
+    def _format_line(event):
+        """Format event as HH:MM [source] message — for split layout."""
+        time_str = event.get("time", "??:??")
+        # Normalize to HH:MM
+        if len(time_str) > 5:
+            time_str = time_str[-5:] if ":" in time_str[-5:] else time_str[:5]
+        src = event.get("type", "sys")[:6]
+        msg = event.get("message", "")
+        if len(msg) > 55:
+            msg = msg[:52] + "..."
+        return f"  {time_str:>5} [{src}] {msg}"
+
     def _draw_content(self, win, y, x, height, width):
-        """Render activity log content into curses window."""
+        """Render activity log with ERRORS (upper, red) and RECENT (lower, green)."""
+        if height < 3:
+            return
+
         filtered = self.events
         if self._filter:
             filtered = [
@@ -72,15 +91,42 @@ class ActivityLogPanel(BasePanel):
                 or self._filter.lower() in e.get("type", "").lower()
             ]
 
-        for i, event in enumerate(filtered[:height]):
-            st = self._format_event(event)
-            line = st.plain
+        # ERRORS section (upper)
+        row = 0
+        self._safe_addstr(win, y + row, x, " ERRORS:", self.c_error, width)
+        row += 1
+
+        if self.errors:
+            for err in self.errors[:max(2, height // 3)]:
+                if row >= height - 2:
+                    break
+                line = self._format_line(err)
+                self._safe_addstr(win, y + row, x, line, self.c_error, width)
+                row += 1
+        else:
+            self._safe_addstr(win, y + row, x, "  (none)", self.c_normal, width)
+            row += 1
+
+        # Separator
+        if row < height:
+            sep = " " + "\u2500" * (width - 2)
+            self._safe_addstr(win, y + row, x, sep, self.c_normal, width)
+            row += 1
+
+        # RECENT section (lower, green)
+        if row < height:
+            self._safe_addstr(win, y + row, x, " RECENT:", self.c_normal, width)
+            row += 1
+
+        for event in filtered[:(height - row)]:
+            if row >= height:
+                break
+            line = self._format_line(event)
             level = event.get("level", "info")
             attr = self.c_normal
             if level == "error":
                 attr = self.c_error
             elif level in ("warn", "warning"):
                 attr = self.c_warn
-            else:
-                attr = self.c_normal
-            self._safe_addstr(win, y + i, x, line, attr, width)
+            self._safe_addstr(win, y + row, x, line, attr, width)
+            row += 1

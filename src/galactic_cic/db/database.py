@@ -83,10 +83,27 @@ CREATE TABLE IF NOT EXISTS dns_cache (
     resolved_at REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS attacker_scans (
+    ip TEXT PRIMARY KEY,
+    open_ports TEXT DEFAULT '',
+    os_guess TEXT DEFAULT '',
+    scanned_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS geo_cache (
+    ip TEXT PRIMARY KEY,
+    country_code TEXT DEFAULT '',
+    city TEXT DEFAULT '',
+    isp TEXT DEFAULT '',
+    resolved_at REAL NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_agent_ts ON agent_metrics(timestamp);
 CREATE INDEX IF NOT EXISTS idx_server_ts ON server_metrics(timestamp);
 CREATE INDEX IF NOT EXISTS idx_security_ts ON security_metrics(timestamp);
 CREATE INDEX IF NOT EXISTS idx_network_ts ON network_metrics(timestamp);
+CREATE INDEX IF NOT EXISTS idx_attacker_ip ON attacker_scans(ip);
+CREATE INDEX IF NOT EXISTS idx_geo_ip ON geo_cache(ip);
 """
 
 
@@ -162,6 +179,16 @@ class MetricsDB:
         # dns_cache uses resolved_at instead of timestamp
         self.conn.execute(
             "DELETE FROM dns_cache WHERE resolved_at < ?", (cutoff,)
+        )
+        # geo_cache: 7-day TTL
+        geo_cutoff = time.time() - (7 * 24 * 3600)
+        self.conn.execute(
+            "DELETE FROM geo_cache WHERE resolved_at < ?", (geo_cutoff,)
+        )
+        # attacker_scans: 6-hour TTL
+        scan_cutoff = time.time() - (6 * 3600)
+        self.conn.execute(
+            "DELETE FROM attacker_scans WHERE scanned_at < ?", (scan_cutoff,)
         )
         self.conn.commit()
 

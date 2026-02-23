@@ -18,14 +18,26 @@ class SecurityPanel(BasePanel):
         }
         self.ssh_summary = {"accepted": [], "failed": []}
         self.last_nmap_time = ""
+        self.attacker_scans = {}  # ip -> {open_ports, os_guess}
+        self.geo_data = {}  # ip -> {country_code, city, isp}
 
-    def update(self, data, ssh_summary=None, last_nmap_time=None):
+    def update(self, data, ssh_summary=None, last_nmap_time=None,
+               attacker_scans=None, geo_data=None):
         """Update panel data from collectors."""
         self.security_data = data or self.security_data
         if ssh_summary is not None:
             self.ssh_summary = ssh_summary
         if last_nmap_time is not None:
             self.last_nmap_time = last_nmap_time
+        if attacker_scans is not None:
+            self.attacker_scans = attacker_scans
+        if geo_data is not None:
+            self.geo_data = geo_data
+
+    def _get_cc(self, ip):
+        """Get 2-letter country code for an IP."""
+        geo = self.geo_data.get(ip, {})
+        return geo.get("country_code", "?") if geo else "?"
 
     def _build_content(self, data):
         """Build content as StyledText — used by tests and rendering."""
@@ -63,51 +75,38 @@ class SecurityPanel(BasePanel):
 
         st.append("\n")
 
-        # SSH Login Summary
+        # SSH Login Summary with country codes
         accepted = self.ssh_summary.get("accepted", [])
         failed = self.ssh_summary.get("failed", [])
 
         if accepted:
             st.append("  SSH Logins (24h):\n", "green")
-            table = Table(
-                columns=["IP", "#", "Host", "Last"],
-                widths=[18, 4, 14, 10],
-                borders=False,
-                padding=0,
-                header=False,
-            )
             for entry in accepted:
-                table.add_row([
-                    entry.get("ip", "?"),
-                    str(entry.get("count", 0)),
-                    entry.get("hostname", "unknown")[:13],
-                    entry.get("last_seen", "")[:9],
-                ])
-            table_st = table.render()
-            for line in table_st.plain.split("\n"):
-                if line.strip():
-                    st.append(f"   {line}\n", "green")
+                ip = entry.get("ip", "?")
+                count = str(entry.get("count", 0))
+                host = entry.get("hostname", "unknown")[:13]
+                cc = self._get_cc(ip)
+                st.append(f"   {ip:<18}{count:>3} {host:<14}{cc}\n", "green")
 
         st.append("  SSH Failed (24h):\n", "green")
         if failed:
-            table = Table(
-                columns=["IP", "#", "Host", "Last"],
-                widths=[18, 4, 14, 10],
-                borders=False,
-                padding=0,
-                header=False,
-            )
             for entry in failed:
-                table.add_row([
-                    entry.get("ip", "?"),
-                    str(entry.get("count", 0)),
-                    entry.get("hostname", "unknown")[:13],
-                    entry.get("last_seen", "")[:9],
-                ], style="red")
-            table_st = table.render()
-            for line in table_st.plain.split("\n"):
-                if line.strip():
-                    st.append(f"   {line}\n", "red")
+                ip = entry.get("ip", "?")
+                count = str(entry.get("count", 0))
+                host = entry.get("hostname", "unknown")[:13]
+                cc = self._get_cc(ip)
+                st.append(f"   {ip:<18}{count:>3} {host:<14}{cc}\n", "red")
+                # Show nmap scan results if available
+                scan = self.attacker_scans.get(ip, {})
+                ports = scan.get("open_ports", "")
+                os_guess = scan.get("os_guess", "")
+                if ports or os_guess:
+                    parts = []
+                    if ports:
+                        parts.append(f"ports: {ports}")
+                    if os_guess:
+                        parts.append(f"os: {os_guess}")
+                    st.append(f"     {('  '.join(parts))}\n", "red")
         else:
             st.append("   (none)\n", "green")
 
@@ -148,7 +147,9 @@ class SecurityPanel(BasePanel):
                     attr = self.c_warn
             elif "Enabled" in line:
                 attr = self.c_warn
-            elif "SSH Failed" in line or (self.ssh_summary.get("failed") and
-                    any(e.get("ip", "") in line for e in self.ssh_summary["failed"])):
+            elif "SSH Failed" in line or "ports:" in line or "os:" in line:
+                attr = self.c_error
+            elif self.ssh_summary.get("failed") and \
+                    any(e.get("ip", "") in line for e in self.ssh_summary["failed"]):
                 attr = self.c_error
             self._safe_addstr(win, y + i, x, line, attr, width)
