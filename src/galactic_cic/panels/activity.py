@@ -82,5 +82,5 @@ class ActivityLogPanel(BasePanel):
             elif level in ("warn", "warning"):
                 attr = self.c_warn
             else:
-                attr = self.c_highlight
+                attr = self.c_normal
             self._safe_addstr(win, y + i, x, line, attr, width)

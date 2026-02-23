@@ -9,10 +9,10 @@ class CronJobsPanel(BasePanel):
     TITLE = "Cron Jobs"
 
     STATUS_ICONS = {
-        "ok": ("\u2705", "green"),
-        "error": ("\u274c", "red"),
-        "idle": ("\u23f3", "yellow"),
-        "running": ("\U0001f504", "cyan"),
+        "ok": ("✅", "green"),
+        "error": ("❌", "red"),
+        "idle": ("⏳", "green"),
+        "running": ("🔄", "green"),
     }
 
     def __init__(self):
@@ -29,7 +29,7 @@ class CronJobsPanel(BasePanel):
 
         jobs = data.get("jobs", [])
         if not jobs:
-            st.append("  No cron jobs found\n", "dim")
+            st.append("  No cron jobs found\n", "green")
             if data.get("error"):
                 st.append(f"  Error: {data['error'][:40]}\n", "red")
             return st
@@ -38,18 +38,32 @@ class CronJobsPanel(BasePanel):
             name = job.get("name", "unknown")
             status = job.get("status", "idle")
             last_run = job.get("last_run", "")
+            next_run = job.get("next_run", "")
             errors = job.get("error_count", 0)
 
-            icon, color = self.STATUS_ICONS.get(status, ("\u2753", "dim"))
+            icon, color = self.STATUS_ICONS.get(status, ("❓", "green"))
 
-            st.append(f"  {icon} ", color)
-            st.append(f"{name:14}", "green")
+            # Status-based color
+            if status == "error":
+                line_color = "red"
+            else:
+                line_color = "green"
 
+            st.append(f"  {icon} ", line_color)
+            st.append(f"{name:20}", line_color)
+
+            # Last run
             if last_run:
-                st.append(f" {last_run}", "dim")
+                st.append(f" ran:{last_run:>6}", "green")
+            else:
+                st.append(f" ran:{'--':>6}", "green")
+
+            # Next run
+            if next_run:
+                st.append(f" next:{next_run:>6}", "green")
 
             if errors and errors > 0:
-                st.append(f" ({errors} err)", "red")
+                st.append(f" ({errors}err)", "red")
 
             st.append("\n")
 
@@ -63,12 +77,8 @@ class CronJobsPanel(BasePanel):
             if not line:
                 continue
             attr = self.c_normal
-            if "\u274c" in line or "err)" in line:
+            if "❌" in line or "err)" in line:
                 attr = self.c_error
-            elif "\u2705" in line:
-                attr = self.c_highlight
-            elif "\u23f3" in line:
+            elif "⚠" in line:
                 attr = self.c_warn
-            elif "No cron" in line:
-                attr = self.c_dim
             self._safe_addstr(win, y + i, x, line, attr, width)

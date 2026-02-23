@@ -214,36 +214,62 @@ def _parse_size(size_str: str) -> float:
 
 async def get_cron_jobs() -> dict[str, Any]:
     """Get cron job status from openclaw cron list."""
-    stdout, stderr, rc = await run_command(
-        "openclaw cron list --json 2>/dev/null || openclaw cron list 2>/dev/null"
-    )
+    stdout, stderr, rc = await run_command("openclaw cron list 2>/dev/null")
 
     jobs = []
     if rc == 0 and stdout.strip():
-        try:
-            data = json.loads(stdout)
-            if isinstance(data, list):
-                jobs = data
-            elif isinstance(data, dict) and "jobs" in data:
-                jobs = data["jobs"]
-        except json.JSONDecodeError:
-            for line in stdout.strip().split("\n"):
-                line = line.strip()
-                if line and not line.startswith("#") and not line.startswith("-"):
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        status = "idle"
-                        if "error" in line.lower() or "fail" in line.lower():
-                            status = "error"
-                        elif "running" in line.lower():
-                            status = "running"
-                        elif "ok" in line.lower() or "success" in line.lower():
-                            status = "ok"
-                        jobs.append({
-                            "name": parts[0],
-                            "status": status,
-                            "last_run": parts[1] if len(parts) > 1 else "unknown",
-                        })
+        lines = stdout.strip().split("\n")
+        if len(lines) < 2:
+            return {"jobs": jobs, "error": None}
+
+        # Parse header to find column positions
+        header = lines[0]
+        col_positions = {}
+        for col_name in ["Name", "Next", "Last", "Status", "Agent"]:
+            idx = header.find(col_name)
+            if idx >= 0:
+                col_positions[col_name] = idx
+
+        # Parse each data line using column positions
+        for line in lines[1:]:
+            if not line.strip():
+                continue
+            try:
+                name_start = col_positions.get("Name", 37)
+                next_start = col_positions.get("Next", 70)
+                last_start = col_positions.get("Last", 81)
+                status_start = col_positions.get("Status", 92)
+                agent_start = col_positions.get("Agent", 112)
+
+                name = line[name_start:next_start].strip().rstrip(".")
+                next_run = line[next_start:last_start].strip()
+                last_run = line[last_start:status_start].strip()
+                status_field = line[status_start:agent_start].strip() if agent_start else line[status_start:].split()[0]
+                agent = line[agent_start:].strip().split()[0] if agent_start and len(line) > agent_start else ""
+
+                # Normalize status
+                status = "idle"
+                status_lower = status_field.lower()
+                if "error" in status_lower:
+                    status = "error"
+                elif "running" in status_lower:
+                    status = "running"
+                elif status_lower == "ok":
+                    status = "ok"
+
+                # Clean up last_run
+                if last_run == "-":
+                    last_run = ""
+
+                jobs.append({
+                    "name": name[:22],
+                    "status": status,
+                    "last_run": last_run,
+                    "next_run": next_run,
+                    "agent": agent,
+                })
+            except (IndexError, KeyError):
+                continue
 
     return {"jobs": jobs, "error": stderr if rc != 0 else None}
 

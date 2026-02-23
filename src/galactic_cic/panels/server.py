@@ -97,7 +97,7 @@ class ServerHealthPanel(BasePanel):
                         elif pct >= 70:
                             attr = self.c_warn
                         else:
-                            attr = self.c_highlight
+                            attr = self.c_normal
                     except (ValueError, IndexError):
                         attr = self.c_normal
             elif "LOAD:" in line or "UP:" in line:

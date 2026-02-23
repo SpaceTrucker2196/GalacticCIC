@@ -73,9 +73,9 @@ class AgentFleetPanel(BasePanel):
             if "Error" in line or "OFFLINE" in line:
                 attr = self.c_error
             elif "ONLINE" in line:
-                attr = self.c_highlight
+                attr = self.c_normal
             elif "Sessions:" in line or "Model:" in line or "Gateway:" in line:
-                attr = self.c_dim
+                attr = self.c_normal
             elif "No agents" in line:
-                attr = self.c_dim
+                attr = self.c_normal
             self._safe_addstr(win, y + i, x, line, attr, width)

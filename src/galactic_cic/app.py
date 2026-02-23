@@ -96,8 +96,8 @@ class CICDashboard:
             curses.init_color(18, 0, 1000, 0)
             # Dim green / labels (#0d7a0d)
             curses.init_color(19, 52, 480, 52)
-            # Yellow / warnings (#ccaa00)
-            curses.init_color(20, 800, 668, 0)
+            # Orange / warnings (#ff8800)
+            curses.init_color(20, 1000, 533, 0)
             # Red / errors (#cc3333)
             curses.init_color(21, 800, 200, 200)
             # Header bright green (#4aff4a)
@@ -115,7 +115,7 @@ class CICDashboard:
             # Fallback for terminals that can't redefine colors
             curses.init_pair(self.CP_NORMAL, curses.COLOR_GREEN, curses.COLOR_BLACK)
             curses.init_pair(self.CP_HIGHLIGHT, curses.COLOR_GREEN, curses.COLOR_BLACK)
-            curses.init_pair(self.CP_WARN, curses.COLOR_YELLOW, curses.COLOR_BLACK)
+            curses.init_pair(self.CP_WARN, curses.COLOR_MAGENTA, curses.COLOR_BLACK)  # closest to orange in 8-color
             curses.init_pair(self.CP_ERROR, curses.COLOR_RED, curses.COLOR_BLACK)
             curses.init_pair(self.CP_DIM, curses.COLOR_GREEN, curses.COLOR_BLACK)
             curses.init_pair(self.CP_HEADER, curses.COLOR_GREEN, curses.COLOR_BLACK)

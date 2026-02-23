@@ -82,7 +82,7 @@ class SecurityPanel(BasePanel):
                 else:
                     attr = self.c_warn
             elif "No intrusions" in line or "Active" in line or "Disabled" in line:
-                attr = self.c_highlight
+                attr = self.c_normal
             elif "Inactive" in line or "Enabled" in line:
                 if "Fail2ban" in line:
                     attr = self.c_error

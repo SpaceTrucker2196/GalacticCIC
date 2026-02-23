@@ -93,6 +93,6 @@ def step_error_icon(context):
 @then('I should see the error count "{count}"')
 def step_error_count(context, count):
     text = context.panel_output.plain
-    assert f"{count} err" in text, (
-        f"Expected '{count} err' in output, got: {text}"
+    assert f"{count}err)" in text or f"{count} err" in text, (
+        f"Expected '{count}err)' or '{count} err' in output, got: {text}"
     )
