@@ -14,6 +14,7 @@ class SecurityPanel(BasePanel):
             "ssh_intrusions": 0, "listening_ports": 0,
             "expected_ports": 4, "ufw_active": False,
             "fail2ban_active": False, "root_login_enabled": True,
+            "ports_detail": [],
         }
 
     def update(self, data):
@@ -26,44 +27,38 @@ class SecurityPanel(BasePanel):
 
         intrusions = data.get("ssh_intrusions", 0)
         if intrusions == 0:
-            st.append("  SSH:      ", "dim")
-            st.append("No intrusions\n", "green")
+            st.append("  SSH:      No intrusions\n", "green")
         elif intrusions < 10:
-            st.append("  SSH:      ", "dim")
-            st.append(f"{intrusions} failed attempts\n", "yellow")
+            st.append(f"  SSH:      {intrusions} failed attempts\n", "yellow")
         else:
-            st.append("  SSH:      ", "dim")
-            st.append(f"{intrusions} failed attempts\n", "red")
+            st.append(f"  SSH:      {intrusions} failed attempts\n", "red")
 
-        ports = data.get("listening_ports", 0)
-        expected = data.get("expected_ports", 4)
-        if ports <= expected:
-            st.append("  Ports:    ", "dim")
-            st.append(f"{ports} listening (expected)\n", "green")
-        else:
-            st.append("  Ports:    ", "dim")
-            st.append(f"{ports} listening ({expected} expected)\n", "yellow")
+        # Port details
+        ports_detail = data.get("ports_detail", [])
+        port_count = len(ports_detail) if ports_detail else data.get("listening_ports", 0)
+        st.append(f"  Ports:    {port_count} open\n", "green")
+        for port_info in ports_detail:
+            port = port_info.get("port", "?")
+            service = port_info.get("service", "unknown")
+            st.append(f"    {port:>5} {service}\n", "green")
 
         ufw_active = data.get("ufw_active", False)
-        st.append("  UFW:      ", "dim")
         if ufw_active:
-            st.append("Active\n", "green")
+            st.append("  UFW:      Active\n", "green")
         else:
-            st.append("Inactive\n", "yellow")
+            st.append("  UFW:      Inactive\n", "yellow")
 
         f2b_active = data.get("fail2ban_active", False)
-        st.append("  Fail2ban: ", "dim")
         if f2b_active:
-            st.append("Active\n", "green")
+            st.append("  Fail2ban: Active\n", "green")
         else:
-            st.append("Inactive\n", "red")
+            st.append("  Fail2ban: Inactive\n", "red")
 
         root_enabled = data.get("root_login_enabled", True)
-        st.append("  RootLogin:", "dim")
         if root_enabled:
-            st.append(" Enabled\n", "yellow")
+            st.append("  RootLogin: Enabled\n", "yellow")
         else:
-            st.append(" Disabled\n", "green")
+            st.append("  RootLogin: Disabled\n", "green")
 
         return st
 
@@ -77,15 +72,9 @@ class SecurityPanel(BasePanel):
             attr = self.c_normal
             if "failed attempts" in line:
                 intrusions = self.security_data.get("ssh_intrusions", 0)
-                if intrusions >= 10:
-                    attr = self.c_error
-                else:
-                    attr = self.c_warn
-            elif "No intrusions" in line or "Active" in line or "Disabled" in line:
-                attr = self.c_normal
-            elif "Inactive" in line or "Enabled" in line:
-                if "Fail2ban" in line:
-                    attr = self.c_error
-                else:
-                    attr = self.c_warn
+                attr = self.c_error if intrusions >= 10 else self.c_warn
+            elif "Inactive" in line:
+                attr = self.c_error if "Fail2ban" in line else self.c_warn
+            elif "Enabled" in line:
+                attr = self.c_warn
             self._safe_addstr(win, y + i, x, line, attr, width)

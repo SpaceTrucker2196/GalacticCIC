@@ -326,13 +326,52 @@ async def get_security_status() -> dict[str, Any]:
     except ValueError:
         pass
 
-    stdout, _, rc = await run_command(
-        "ss -tlnp 2>/dev/null | tail -n +2 | wc -l"
+    # Get detailed port info — prefer nmap, fall back to ss
+    ports_list = []
+    nmap_out, _, nmap_rc = await run_command(
+        "nmap -sT -O localhost 2>/dev/null || nmap -sT localhost 2>/dev/null",
+        timeout=15.0
     )
-    try:
-        result["listening_ports"] = int(stdout.strip())
-    except ValueError:
-        pass
+    if nmap_rc == 0 and "open" in nmap_out:
+        for line in nmap_out.split("\n"):
+            line = line.strip()
+            if "/tcp" in line and "open" in line:
+                parts = line.split()
+                if len(parts) >= 3:
+                    port = parts[0].split("/")[0]
+                    state = parts[1]
+                    service = parts[2] if len(parts) > 2 else "unknown"
+                    ports_list.append({
+                        "port": port,
+                        "state": state,
+                        "service": service,
+                    })
+    else:
+        # Fallback to ss -tlnp
+        ss_out, _, ss_rc = await run_command("ss -tlnp 2>/dev/null")
+        if ss_rc == 0:
+            for line in ss_out.strip().split("\n")[1:]:  # skip header
+                parts = line.split()
+                if len(parts) >= 4:
+                    local_addr = parts[3]
+                    # Extract port from address like *:22 or 0.0.0.0:22
+                    port = local_addr.rsplit(":", 1)[-1] if ":" in local_addr else local_addr
+                    # Try to get process name
+                    process = ""
+                    for p in parts:
+                        if "users:" in p:
+                            proc_match = re.search(r'"([^"]+)"', p)
+                            if proc_match:
+                                process = proc_match.group(1)
+                            break
+                    ports_list.append({
+                        "port": port,
+                        "state": "open",
+                        "service": process or f"port-{port}",
+                    })
+
+    result["listening_ports"] = len(ports_list)
+    result["ports_detail"] = ports_list
 
     stdout, _, _ = await run_command("ufw status 2>/dev/null || echo inactive")
     result["ufw_active"] = (

@@ -52,6 +52,7 @@ def step_ssh_red(context):
 @then('I should see "{text_match}" ports')
 def step_see_ports(context, text_match):
     text = context.panel_output.plain
-    assert text_match in text, (
+    # Accept both "4 listening" and "4 open"
+    assert text_match in text or text_match.replace("listening", "open") in text, (
         f"Expected '{text_match}' in output, got: {text}"
     )
