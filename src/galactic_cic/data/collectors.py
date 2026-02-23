@@ -30,31 +30,63 @@ async def run_command(cmd: str, timeout: float = 10.0) -> tuple[str, str, int]:
 
 
 async def get_agents_data() -> dict[str, Any]:
-    """Get agent fleet status from openclaw agents list."""
-    stdout, stderr, rc = await run_command(
-        "openclaw agents list --json 2>/dev/null || openclaw agents list 2>/dev/null"
-    )
+    """Get agent fleet status from openclaw agents list with storage and tokens."""
+    stdout, stderr, rc = await run_command("openclaw agents list 2>/dev/null")
 
     agents = []
     if rc == 0 and stdout.strip():
-        try:
-            data = json.loads(stdout)
-            if isinstance(data, list):
-                agents = data
-            elif isinstance(data, dict) and "agents" in data:
-                agents = data["agents"]
-        except json.JSONDecodeError:
-            for line in stdout.strip().split("\n"):
-                line = line.strip()
-                if line and not line.startswith("#") and not line.startswith("-"):
-                    parts = line.split()
-                    if parts:
-                        agents.append({
-                            "name": parts[0],
-                            "status": (
-                                "offline" if "offline" in line.lower() else "online"
-                            ),
-                        })
+        current_agent = None
+        for line in stdout.strip().split("\n"):
+            line = line.strip()
+            if line.startswith("- "):
+                # New agent line: "- main (default) (galactic)"
+                name = line[2:].split("(")[0].strip()
+                current_agent = {
+                    "name": name,
+                    "status": "online",
+                    "model": "",
+                    "workspace": "",
+                }
+                agents.append(current_agent)
+            elif current_agent and line.startswith("Model:"):
+                model = line.split(":", 1)[1].strip()
+                # Shorten model name
+                model = model.replace("anthropic/", "").replace("claude-", "")
+                current_agent["model"] = model
+            elif current_agent and line.startswith("Workspace:"):
+                current_agent["workspace"] = line.split(":", 1)[1].strip()
+
+    # Get storage sizes for each agent workspace
+    for agent in agents:
+        ws = agent.get("workspace", "")
+        if ws:
+            ws_expanded = ws.replace("~", "/home/spacetrucker")
+            size_out, _, size_rc = await run_command(f"du -sh {ws_expanded} 2>/dev/null")
+            if size_rc == 0 and size_out.strip():
+                agent["storage"] = size_out.strip().split()[0]
+            else:
+                agent["storage"] = "?"
+        else:
+            agent["storage"] = "?"
+
+    # Get token usage per agent from openclaw status
+    status_out, _, status_rc = await run_command("openclaw status 2>/dev/null")
+    if status_rc == 0 and status_out:
+        for agent in agents:
+            name = agent["name"]
+            # Find sessions for this agent and sum tokens
+            total_tokens = 0
+            session_count = 0
+            for line in status_out.split("\n"):
+                if f"agent:{name}:" in line:
+                    session_count += 1
+                    # Extract token info like "126k/80k (158%)"
+                    token_match = re.search(r'(\d+k)/(\d+k)\s*\((\d+)%\)', line)
+                    if token_match:
+                        used = int(token_match.group(1).replace('k', ''))
+                        total_tokens += used
+            agent["tokens"] = f"{total_tokens}k" if total_tokens > 0 else "0k"
+            agent["sessions"] = session_count
 
     return {"agents": agents, "error": stderr if rc != 0 else None}
 

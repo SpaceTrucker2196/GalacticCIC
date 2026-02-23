@@ -27,38 +27,41 @@ class AgentFleetPanel(BasePanel):
         error = agents_data.get("error")
 
         if error and not agents:
-            st.append(f"  Error loading agents\n", "red")
-            st.append(f"  {error[:50]}\n", "red dim")
+            st.append("  Error loading agents\n", "red")
+            st.append(f"  {error[:50]}\n", "red")
             return st
 
         if not agents:
-            st.append("  No agents found\n", "dim")
+            st.append("  No agents found\n", "green")
             return st
 
         for agent in agents:
             name = agent.get("name", "unknown")
-            status = agent.get("status", "unknown").upper()
             model = agent.get("model", "")
-            style = "green" if status == "ONLINE" else "red"
-            st.append(f"  {name:12} ", "green")
-            st.append(f"{status}", style)
-            if model:
-                st.append(f"  ({model})", "dim")
+            storage = agent.get("storage", "?")
+            tokens = agent.get("tokens", "0k")
+            sessions = agent.get("sessions", 0)
+
+            st.append(f"  {name:12}", "green")
+            st.append(f" {model:14}", "green")
+            st.append(f" {storage:>5}", "green")
+            st.append(f" {tokens:>5}tok", "green")
+            if sessions > 0:
+                st.append(f" {sessions}s", "green")
             st.append("\n")
 
         st.append("\n")
 
-        sessions = status_data.get("sessions", 0)
-        model = status_data.get("model", "unknown")
+        total_sessions = status_data.get("sessions", 0)
         gateway = status_data.get("gateway_status", "unknown")
+        version = status_data.get("version", "")
 
-        st.append("  Sessions: ", "dim")
-        st.append(f"{sessions} active\n", "green")
-        st.append("  Model: ", "dim")
-        st.append(f"{model}\n", "green")
-        st.append("  Gateway: ", "dim")
-        gw_style = "green" if gateway == "running" else "yellow"
-        st.append(f"{gateway}\n", gw_style)
+        st.append(f"  Sessions: {total_sessions}", "green")
+        if version:
+            st.append(f"  v{version}", "green")
+        st.append("\n")
+        gw_style = "green" if gateway == "running" else "red"
+        st.append(f"  Gateway: {gateway}\n", gw_style)
 
         return st
 
@@ -72,10 +75,4 @@ class AgentFleetPanel(BasePanel):
             attr = self.c_normal
             if "Error" in line or "OFFLINE" in line:
                 attr = self.c_error
-            elif "ONLINE" in line:
-                attr = self.c_normal
-            elif "Sessions:" in line or "Model:" in line or "Gateway:" in line:
-                attr = self.c_normal
-            elif "No agents" in line:
-                attr = self.c_normal
             self._safe_addstr(win, y + i, x, line, attr, width)

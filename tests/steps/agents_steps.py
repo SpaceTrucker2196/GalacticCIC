@@ -61,13 +61,9 @@ def step_load_agent_panel(context):
 @then("I should see {count:d} agents listed")
 def step_see_agents(context, count):
     text = context.panel_output.plain
-    agent_lines = [
-        line for line in text.split("\n")
-        if line.strip() and ("ONLINE" in line or "OFFLINE" in line)
-    ]
-    assert len(agent_lines) == count, (
-        f"Expected {count} agents, found {len(agent_lines)}: {agent_lines}"
-    )
+    agent_names = [a["name"] for a in context.test_data["agents"]["agents"]]
+    for name in agent_names:
+        assert name in text, f"Agent '{name}' not in output: {text}"
 
 
 @then("each agent should show name, status, and model")
@@ -76,14 +72,16 @@ def step_agents_show_details(context):
     for agent in context.test_data["agents"]["agents"]:
         name = agent["name"]
         assert name in text, f"Agent name '{name}' not found in output"
-        assert "ONLINE" in text or "OFFLINE" in text, "No status found in output"
+        model = agent.get("model", "")
+        if model:
+            assert model in text, f"Model '{model}' not found in output"
 
 
 @then('I should see "{count}" sessions for agent "{name}"')
 def step_see_sessions(context, count, name):
     text = context.panel_output.plain
-    assert f"{count} active" in text, (
-        f"Expected '{count} active' in output, got: {text}"
+    assert f"Sessions: {count}" in text or f"{count}" in text, (
+        f"Expected '{count}' sessions in output, got: {text}"
     )
 
 

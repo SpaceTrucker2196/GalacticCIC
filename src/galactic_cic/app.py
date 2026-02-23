@@ -87,39 +87,19 @@ class CICDashboard:
         curses.start_color()
         curses.use_default_colors()
 
-        if curses.can_change_color():
-            # Background: near-black dark green (#020a02)
-            curses.init_color(16, 8, 40, 8)
-            # Normal green (#33ff33)
-            curses.init_color(17, 200, 1000, 200)
-            # Bright green / highlight (#00ff00)
-            curses.init_color(18, 0, 1000, 0)
-            # Dim green / labels (#0d7a0d)
-            curses.init_color(19, 52, 480, 52)
-            # Orange / warnings (#ff8800)
-            curses.init_color(20, 1000, 533, 0)
-            # Red / errors (#cc3333)
-            curses.init_color(21, 800, 200, 200)
-            # Header bright green (#4aff4a)
-            curses.init_color(22, 290, 1000, 290)
+        # Use standard color indices — safe across all terminals
+        # All normal text = GREEN on BLACK
+        # Errors = RED on BLACK
+        # Warnings = YELLOW on BLACK (closest to orange)
+        bg = curses.COLOR_BLACK
 
-            bg = 16
-            curses.init_pair(self.CP_NORMAL, 17, bg)
-            curses.init_pair(self.CP_HIGHLIGHT, 18, bg)
-            curses.init_pair(self.CP_WARN, 20, bg)
-            curses.init_pair(self.CP_ERROR, 21, bg)
-            curses.init_pair(self.CP_DIM, 19, bg)
-            curses.init_pair(self.CP_HEADER, 22, bg)
-            curses.init_pair(self.CP_FOOTER, 19, bg)
-        else:
-            # Fallback for terminals that can't redefine colors
-            curses.init_pair(self.CP_NORMAL, curses.COLOR_GREEN, curses.COLOR_BLACK)
-            curses.init_pair(self.CP_HIGHLIGHT, curses.COLOR_GREEN, curses.COLOR_BLACK)
-            curses.init_pair(self.CP_WARN, curses.COLOR_MAGENTA, curses.COLOR_BLACK)  # closest to orange in 8-color
-            curses.init_pair(self.CP_ERROR, curses.COLOR_RED, curses.COLOR_BLACK)
-            curses.init_pair(self.CP_DIM, curses.COLOR_GREEN, curses.COLOR_BLACK)
-            curses.init_pair(self.CP_HEADER, curses.COLOR_GREEN, curses.COLOR_BLACK)
-            curses.init_pair(self.CP_FOOTER, curses.COLOR_GREEN, curses.COLOR_BLACK)
+        curses.init_pair(self.CP_NORMAL, curses.COLOR_GREEN, bg)
+        curses.init_pair(self.CP_HIGHLIGHT, curses.COLOR_GREEN, bg)
+        curses.init_pair(self.CP_WARN, curses.COLOR_YELLOW, bg)
+        curses.init_pair(self.CP_ERROR, curses.COLOR_RED, bg)
+        curses.init_pair(self.CP_DIM, curses.COLOR_GREEN, bg)
+        curses.init_pair(self.CP_HEADER, curses.COLOR_GREEN, bg)
+        curses.init_pair(self.CP_FOOTER, curses.COLOR_GREEN, bg)
 
     def _color(self, pair_id):
         """Get curses color pair attribute."""
