@@ -15,6 +15,9 @@ from galactic_cic.data.collectors import (
     get_security_status,
     get_activity_log,
 )
+from galactic_cic.db.database import MetricsDB
+from galactic_cic.db.recorder import MetricsRecorder
+from galactic_cic.db.trends import TrendCalculator
 from galactic_cic.panels.agents import AgentFleetPanel
 from galactic_cic.panels.server import ServerHealthPanel
 from galactic_cic.panels.cron import CronJobsPanel
@@ -54,6 +57,14 @@ class CICDashboard:
         self.running = False
         self.show_help_overlay = False
         self.focused_panel = 0  # 0-4
+
+        # Historical database
+        self.db = MetricsDB()
+        self.recorder = MetricsRecorder(self.db)
+        self.trends = TrendCalculator(self.db)
+
+        # Prune old records on startup
+        self.db.prune()
 
         # Panels
         self.panels = [
@@ -280,18 +291,26 @@ class CICDashboard:
     async def _refresh_agents(self):
         agents_data = await get_agents_data()
         status_data = await get_openclaw_status()
-        self.panels[0].update(agents_data, status_data)
+        # Record to DB and get trend data
+        self.recorder.record_agents(agents_data)
+        tokens_per_hour = self.trends.get_agent_tokens_per_hour()
+        self.panels[0].update(agents_data, status_data, tokens_per_hour)
 
     async def _refresh_server(self):
         health = await get_server_health()
-        self.panels[1].update(health)
+        # Record to DB and get trend data
+        self.recorder.record_server(health)
+        server_trends = self.trends.get_server_trends()
+        self.panels[1].update(health, server_trends)
 
     async def _refresh_cron(self):
         cron_data = await get_cron_jobs()
+        self.recorder.record_cron(cron_data)
         self.panels[2].update(cron_data)
 
     async def _refresh_security(self):
         security_data = await get_security_status()
+        self.recorder.record_security(security_data)
         self.panels[3].update(security_data)
 
     async def _refresh_activity(self):

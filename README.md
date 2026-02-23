@@ -8,24 +8,26 @@ An htop-style interactive terminal dashboard for OpenClaw operations monitoring.
 
 ## Features
 
-- **Agent Fleet Status** — agents, sessions, models, token usage
-- **Server Health** — CPU, memory, disk, load, uptime, gateway
+- **Agent Fleet Status** — agents, sessions, models, token usage, tokens/hour, main agent marker
+- **Server Health** — CPU, memory, disk with trend arrows, load, uptime, gateway
 - **Cron Jobs** — all jobs with status icons, timing, errors
 - **Security Status** — SSH, ports, firewall, services
 - **Activity Log** — scrollable event log, color coded
+- **Historical Database** — SQLite-based metrics storage with 30-day retention
+- **Trend Analysis** — trend arrows comparing current vs 1-hour-ago values
+- **Tokens/Hour** — rolling token usage rate per agent and total
 
 ## Install
 
-### Quick Install
+### Quick Setup
 
 ```bash
-./scripts/install.sh
+./scripts/setup.sh
 ```
 
 ### Manual Install
 
 ```bash
-pip install textual rich
 pip install -e .
 ```
 
@@ -36,6 +38,8 @@ Place this repository in your OpenClaw skills directory. The `SKILL.md` provides
 ## Usage
 
 ```bash
+galactic_cic
+# or
 python3 -m galactic_cic
 ```
 
@@ -47,9 +51,18 @@ python3 -m galactic_cic
 | `r` | Force refresh all panels |
 | `1`-`5` | Focus specific panel |
 | `Tab` | Cycle panels |
-| `/` | Filter activity log |
 | `?` | Help overlay |
-| `Esc` | Close dialogs / clear filter |
+| `Esc` | Close dialogs |
+
+### Data Storage
+
+Metrics are stored in `~/.galactic_cic/metrics.db` (SQLite). Records are auto-pruned after 30 days.
+
+## Architecture
+
+- **Pure Python stdlib** — curses, sqlite3, asyncio, subprocess, json, re, os
+- **No OpenClaw library imports** — all interaction via CLI subprocess calls
+- **Graceful degradation** — works even if openclaw CLI is not installed
 
 ## Tests
 
@@ -57,17 +70,17 @@ See [TESTS.md](TESTS.md) for the full test checklist and run instructions.
 
 ```bash
 # Run BDD tests
-cd tests && behave
+python3 -m behave tests/features/
 
 # Run unit tests
-cd tests && python -m unittest test_collectors -v
+python3 -m unittest tests/test_collectors.py -v
 ```
 
 ## Contributing
 
 1. Fork the repository
 2. Create a feature branch
-3. Run the tests: `cd tests && behave`
+3. Run the tests: `python3 -m behave tests/features/`
 4. Submit a pull request
 
 ## License

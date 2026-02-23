@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="galactic-cic",
-    version="1.0.0",
+    version="3.0.0",
     description="Claw Information Center TUI for OpenClaw operations monitoring",
     author="SpaceTrucker2196",
     license="MIT",

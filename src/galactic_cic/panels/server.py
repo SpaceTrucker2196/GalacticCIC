@@ -16,33 +16,43 @@ class ServerHealthPanel(BasePanel):
             "disk_percent": 0.0, "disk_used": "0G", "disk_total": "0G",
             "load_avg": [0.0, 0.0, 0.0], "uptime": "unknown",
         }
+        self.server_trends = {}
 
-    def update(self, health):
+    def update(self, health, server_trends=None):
         """Update panel data from collectors."""
         self.health = health or self.health
+        self.server_trends = server_trends or self.server_trends
 
-    def _build_content(self, health):
+    def _build_content(self, health, server_trends=None):
         """Build content as StyledText — used by tests and rendering."""
         st = StyledText()
+        if server_trends is None:
+            server_trends = {}
 
         cpu = health.get("cpu_percent", 0)
+        cpu_trend = server_trends.get("cpu_trend", "")
         st.append("  CPU:  ", "dim")
         st.append(self._make_bar(cpu), self._bar_color(cpu))
-        st.append(f"  {cpu:4.0f}%\n")
+        trend_str = f" {cpu_trend}" if cpu_trend else ""
+        st.append(f"  {cpu:4.0f}%{trend_str}\n")
 
         mem = health.get("mem_percent", 0)
         mem_used = health.get("mem_used", "?")
         mem_total = health.get("mem_total", "?")
+        mem_trend = server_trends.get("mem_trend", "")
         st.append("  MEM:  ", "dim")
         st.append(self._make_bar(mem), self._bar_color(mem))
-        st.append(f"  {mem:4.0f}%  {mem_used}/{mem_total}\n")
+        trend_str = f" {mem_trend}" if mem_trend else ""
+        st.append(f"  {mem:4.0f}%{trend_str}  {mem_used}/{mem_total}\n")
 
         disk = health.get("disk_percent", 0)
         disk_used = health.get("disk_used", "?")
         disk_total = health.get("disk_total", "?")
+        disk_trend = server_trends.get("disk_trend", "")
         st.append("  DISK: ", "dim")
         st.append(self._make_bar(disk), self._bar_color(disk))
-        st.append(f"  {disk:4.0f}%  {disk_used}/{disk_total}\n")
+        trend_str = f" {disk_trend}" if disk_trend else ""
+        st.append(f"  {disk:4.0f}%{trend_str}  {disk_used}/{disk_total}\n")
 
         st.append("\n")
 
@@ -75,7 +85,7 @@ class ServerHealthPanel(BasePanel):
 
     def _draw_content(self, win, y, x, height, width):
         """Render server health content into curses window."""
-        st = self._build_content(self.health)
+        st = self._build_content(self.health, self.server_trends)
         lines = st.plain.split("\n")
         for i, line in enumerate(lines[:height]):
             if not line:
@@ -83,12 +93,8 @@ class ServerHealthPanel(BasePanel):
             attr = self.c_normal
             # Color bars based on percentage thresholds
             if "CPU:" in line or "MEM:" in line or "DISK:" in line:
-                # Label in dim, but we draw the whole line in normal
-                # and rely on the bar characters being visible
                 attr = self.c_normal
-                # Check for threshold coloring
                 if "\u2588" in line:
-                    # Find the percentage in the line
                     try:
                         pct_str = line.split("%")[0].split()[-1]
                         pct = float(pct_str)

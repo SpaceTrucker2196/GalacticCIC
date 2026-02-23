@@ -37,24 +37,27 @@ async def get_agents_data() -> dict[str, Any]:
     if rc == 0 and stdout.strip():
         current_agent = None
         for line in stdout.strip().split("\n"):
-            line = line.strip()
-            if line.startswith("- "):
+            line_stripped = line.strip()
+            if line_stripped.startswith("- "):
                 # New agent line: "- main (default) (galactic)"
-                name = line[2:].split("(")[0].strip()
+                raw = line_stripped[2:]
+                name = raw.split("(")[0].strip()
+                is_default = "(default)" in raw
                 current_agent = {
                     "name": name,
                     "status": "online",
                     "model": "",
                     "workspace": "",
+                    "is_default": is_default,
                 }
                 agents.append(current_agent)
-            elif current_agent and line.startswith("Model:"):
-                model = line.split(":", 1)[1].strip()
+            elif current_agent and line_stripped.startswith("Model:"):
+                model = line_stripped.split(":", 1)[1].strip()
                 # Shorten model name
                 model = model.replace("anthropic/", "").replace("claude-", "")
                 current_agent["model"] = model
-            elif current_agent and line.startswith("Workspace:"):
-                current_agent["workspace"] = line.split(":", 1)[1].strip()
+            elif current_agent and line_stripped.startswith("Workspace:"):
+                current_agent["workspace"] = line_stripped.split(":", 1)[1].strip()
 
     # Get storage sizes for each agent workspace
     for agent in agents:
@@ -64,10 +67,13 @@ async def get_agents_data() -> dict[str, Any]:
             size_out, _, size_rc = await run_command(f"du -sh {ws_expanded} 2>/dev/null")
             if size_rc == 0 and size_out.strip():
                 agent["storage"] = size_out.strip().split()[0]
+                agent["storage_bytes"] = _parse_storage_bytes(agent["storage"])
             else:
                 agent["storage"] = "?"
+                agent["storage_bytes"] = 0
         else:
             agent["storage"] = "?"
+            agent["storage_bytes"] = 0
 
     # Get token usage per agent from openclaw status
     status_out, _, status_rc = await run_command("openclaw status 2>/dev/null")
@@ -86,6 +92,7 @@ async def get_agents_data() -> dict[str, Any]:
                         used = int(token_match.group(1).replace('k', ''))
                         total_tokens += used
             agent["tokens"] = f"{total_tokens}k" if total_tokens > 0 else "0k"
+            agent["tokens_numeric"] = total_tokens * 1000
             agent["sessions"] = session_count
 
     return {"agents": agents, "error": stderr if rc != 0 else None}
@@ -145,9 +152,13 @@ async def get_server_health() -> dict[str, Any]:
         "mem_percent": 0.0,
         "mem_used": "0G",
         "mem_total": "0G",
+        "mem_used_mb": 0.0,
+        "mem_total_mb": 0.0,
         "disk_percent": 0.0,
         "disk_used": "0G",
         "disk_total": "0G",
+        "disk_used_gb": 0.0,
+        "disk_total_gb": 0.0,
         "load_avg": [0.0, 0.0, 0.0],
         "uptime": "unknown",
     }
@@ -164,6 +175,8 @@ async def get_server_health() -> dict[str, Any]:
                     try:
                         total_val = _parse_size(parts[1])
                         used_val = _parse_size(parts[2])
+                        result["mem_total_mb"] = total_val * 1024
+                        result["mem_used_mb"] = used_val * 1024
                         if total_val > 0:
                             result["mem_percent"] = (used_val / total_val) * 100
                     except (ValueError, IndexError):
@@ -178,6 +191,8 @@ async def get_server_health() -> dict[str, Any]:
             if len(parts) >= 5:
                 result["disk_total"] = parts[1]
                 result["disk_used"] = parts[2]
+                result["disk_total_gb"] = _parse_size(parts[1])
+                result["disk_used_gb"] = _parse_size(parts[2])
                 try:
                     result["disk_percent"] = float(parts[4].rstrip("%"))
                 except ValueError:
@@ -220,6 +235,27 @@ async def get_server_health() -> dict[str, Any]:
         pass
 
     return result
+
+
+def _parse_storage_bytes(size_str: str) -> int:
+    """Parse size string like '27M' or '3.2G' to bytes."""
+    size_str = size_str.strip().upper()
+    multipliers = {
+        "K": 1024,
+        "M": 1024 ** 2,
+        "G": 1024 ** 3,
+        "T": 1024 ** 4,
+    }
+    for suffix, mult in multipliers.items():
+        if size_str.endswith(suffix):
+            try:
+                return int(float(size_str[:-1]) * mult)
+            except ValueError:
+                return 0
+    try:
+        return int(float(size_str))
+    except ValueError:
+        return 0
 
 
 def _parse_size(size_str: str) -> float:

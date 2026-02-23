@@ -6,18 +6,18 @@
 
 ```bash
 # Install test dependencies
-pip install behave textual rich
+pip install behave
 
 # Run BDD tests
-cd tests && behave
+python3 -m behave tests/features/
 
 # Run unit tests
-cd tests && python -m unittest test_collectors -v
+python3 -m unittest tests/test_collectors -v
 ```
 
 ## Test Scenarios
 
-Last updated: 2026-02-22
+Last updated: 2026-02-23
 
 | Feature | Scenario | Status |
 |---------|----------|--------|
@@ -42,6 +42,10 @@ Last updated: 2026-02-22
 | **install.feature** | Package is importable | ✅ passing |
 | **install.feature** | Module is runnable | ✅ passing |
 | **install.feature** | Dependencies are available | ✅ passing |
+| **database.feature** | Database is created on startup | ✅ passing |
+| **database.feature** | Record and retrieve agent metrics | ✅ passing |
+| **database.feature** | Calculate tokens per hour | ✅ passing |
+| **database.feature** | Server trend arrows | ✅ passing |
 
 ## Unit Tests
 
@@ -55,8 +59,24 @@ Last updated: 2026-02-22
 | **TestParseSize** | test_megabytes | ✅ passing |
 | **TestParseSize** | test_terabytes | ✅ passing |
 | **TestParseSize** | test_invalid | ✅ passing |
+| **TestParseStorageBytes** | test_megabytes | ✅ passing |
+| **TestParseStorageBytes** | test_gigabytes | ✅ passing |
+| **TestParseStorageBytes** | test_invalid | ✅ passing |
 | **TestCollectors** | test_server_health_returns_dict | ✅ passing |
 | **TestCollectors** | test_agents_data_returns_dict | ✅ passing |
 | **TestCollectors** | test_cron_jobs_returns_dict | ✅ passing |
 | **TestCollectors** | test_security_status_returns_dict | ✅ passing |
 | **TestCollectors** | test_activity_log_returns_list | ✅ passing |
+| **TestMetricsDB** | test_db_creates_file | ✅ passing |
+| **TestMetricsDB** | test_schema_version | ✅ passing |
+| **TestMetricsDB** | test_insert_and_fetch_server_metrics | ✅ passing |
+| **TestMetricsDB** | test_insert_and_fetch_agent_metrics | ✅ passing |
+| **TestMetricsDB** | test_prune_old_records | ✅ passing |
+| **TestMetricsDB** | test_recent_records_survive_prune | ✅ passing |
+| **TestMetricsRecorder** | test_record_agents | ✅ passing |
+| **TestMetricsRecorder** | test_record_server | ✅ passing |
+| **TestMetricsRecorder** | test_record_security | ✅ passing |
+| **TestTrendCalculator** | test_no_data_returns_dashes | ✅ passing |
+| **TestTrendCalculator** | test_tokens_per_hour_empty | ✅ passing |
+| **TestTrendCalculator** | test_tokens_per_hour_calculation | ✅ passing |
+| **TestTrendCalculator** | test_server_trends_with_data | ✅ passing |

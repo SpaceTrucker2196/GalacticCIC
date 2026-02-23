@@ -24,7 +24,8 @@ def step_agents_configured(context, count):
 @given('agent "{name}" has {count:d} active sessions')
 def step_agent_sessions(context, name, count):
     context.test_data["agents"] = {
-        "agents": [{"name": name, "status": "online", "model": "claude-sonnet"}],
+        "agents": [{"name": name, "status": "online", "model": "claude-sonnet",
+                     "sessions": count}],
         "error": None,
     }
     context.test_data["status"] = {
