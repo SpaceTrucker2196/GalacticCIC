@@ -233,18 +233,19 @@ class CICDashboard:
             return []
 
         if w >= 120:
-            # 3-column layout
+            # 3-column layout with SITREP spanning 2 columns on right
             row_h = content_h // 3
             bot_h = content_h - 2 * row_h
             col_w = w // 3
             mid_w = w // 3
             right_w = w - col_w - mid_w
+            sitrep_w = mid_w + right_w  # SITREP spans center + right
             return [
                 (0, content_y, 0, row_h, col_w),              # Agent Fleet
-                (1, content_y, col_w, row_h, mid_w),          # Server Health
-                (5, content_y, col_w + mid_w, row_h, right_w),  # SITREP
+                (5, content_y, col_w, row_h, sitrep_w),       # SITREP (2 cols wide)
                 (2, content_y + row_h, 0, row_h, col_w),     # Cron Jobs
-                (3, content_y + row_h, col_w, row_h, mid_w),  # Security
+                (1, content_y + row_h, col_w, row_h, mid_w),  # Server Health
+                (3, content_y + row_h, col_w + mid_w, row_h, right_w),  # Security
                 (4, content_y + 2 * row_h, 0, bot_h, w),     # Activity Log
             ]
         else:

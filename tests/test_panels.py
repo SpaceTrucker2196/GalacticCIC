@@ -115,7 +115,7 @@ class TestThemeInit(unittest.TestCase):
     def test_phosphor_normal_is_green(self):
         _init_theme_for_test()
         pair = _fake_pairs[theme.PAIR_IDS[theme.NORMAL]]
-        self.assertEqual(pair, (_real_curses.COLOR_GREEN, _real_curses.COLOR_BLACK))
+        self.assertEqual(pair, (_real_curses.COLOR_GREEN, -1))
 
     def test_amber_normal_is_yellow(self):
         _fake_pairs.clear()
@@ -125,7 +125,7 @@ class TestThemeInit(unittest.TestCase):
              patch("curses.init_pair", _fake_init_pair):
             theme.init_colors("amber")
         pair = _fake_pairs[theme.PAIR_IDS[theme.NORMAL]]
-        self.assertEqual(pair, (_real_curses.COLOR_YELLOW, _real_curses.COLOR_BLACK))
+        self.assertEqual(pair, (_real_curses.COLOR_YELLOW, -1))
 
     def test_blue_normal_is_cyan(self):
         _fake_pairs.clear()
@@ -135,12 +135,12 @@ class TestThemeInit(unittest.TestCase):
              patch("curses.init_pair", _fake_init_pair):
             theme.init_colors("blue")
         pair = _fake_pairs[theme.PAIR_IDS[theme.NORMAL]]
-        self.assertEqual(pair, (_real_curses.COLOR_CYAN, _real_curses.COLOR_BLACK))
+        self.assertEqual(pair, (_real_curses.COLOR_CYAN, -1))
 
     def test_table_heading_pair_is_white(self):
         _init_theme_for_test()
         pair = _fake_pairs[theme.PAIR_IDS[theme.TABLE_HEADING]]
-        self.assertEqual(pair, (_real_curses.COLOR_WHITE, _real_curses.COLOR_BLACK))
+        self.assertEqual(pair, (_real_curses.COLOR_WHITE, -1))
 
 
 class TestThemeSwitching(unittest.TestCase):

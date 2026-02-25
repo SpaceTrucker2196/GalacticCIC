@@ -111,14 +111,19 @@ _initialized = False
 
 
 def _resolve_color(name):
-    """Resolve a string color name to a curses constant."""
+    """Resolve a string color name to a curses constant.
+
+    'default' or 'black' maps to -1 (terminal default background)
+    when use_default_colors() has been called.
+    """
     mapping = {
         "green": curses.COLOR_GREEN,
         "yellow": curses.COLOR_YELLOW,
         "red": curses.COLOR_RED,
         "white": curses.COLOR_WHITE,
         "cyan": curses.COLOR_CYAN,
-        "black": curses.COLOR_BLACK,
+        "black": -1,       # use terminal default background
+        "default": -1,
         "magenta": curses.COLOR_MAGENTA,
         "blue": curses.COLOR_BLUE,
     }
