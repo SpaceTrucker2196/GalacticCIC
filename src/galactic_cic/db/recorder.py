@@ -120,3 +120,42 @@ class MetricsRecorder:
                  port_info.get("state", "open")),
             )
         self.db.commit()
+
+    def record_sitrep(self, channels=None, update_info=None, action_items=None):
+        """Cache SITREP data (channels, update, action items) to SQLite."""
+        import json
+        ts = time.time()
+        if channels is not None:
+            self.db.execute(
+                "INSERT OR REPLACE INTO sitrep_cache (key, value, timestamp) "
+                "VALUES (?, ?, ?)",
+                ("channels", json.dumps(channels), ts),
+            )
+        if update_info is not None:
+            self.db.execute(
+                "INSERT OR REPLACE INTO sitrep_cache (key, value, timestamp) "
+                "VALUES (?, ?, ?)",
+                ("update_info", json.dumps(update_info), ts),
+            )
+        if action_items is not None:
+            self.db.execute(
+                "INSERT OR REPLACE INTO sitrep_cache (key, value, timestamp) "
+                "VALUES (?, ?, ?)",
+                ("action_items", json.dumps(action_items), ts),
+            )
+        self.db.commit()
+
+    def get_sitrep(self):
+        """Retrieve cached SITREP data."""
+        import json
+        result = {"channels": [], "update_info": {}, "action_items": []}
+        for key in ("channels", "update_info", "action_items"):
+            try:
+                row = self.db.fetchone(
+                    "SELECT value FROM sitrep_cache WHERE key = ?", (key,)
+                )
+                if row:
+                    result[key] = json.loads(row[0])
+            except Exception:
+                pass
+        return result

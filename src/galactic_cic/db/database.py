@@ -104,6 +104,12 @@ CREATE INDEX IF NOT EXISTS idx_security_ts ON security_metrics(timestamp);
 CREATE INDEX IF NOT EXISTS idx_network_ts ON network_metrics(timestamp);
 CREATE INDEX IF NOT EXISTS idx_attacker_ip ON attacker_scans(ip);
 CREATE INDEX IF NOT EXISTS idx_geo_ip ON geo_cache(ip);
+
+CREATE TABLE IF NOT EXISTS sitrep_cache (
+    key TEXT PRIMARY KEY,
+    value TEXT DEFAULT '{}',
+    timestamp REAL NOT NULL
+);
 """
 
 

@@ -31,6 +31,7 @@ from galactic_cic.data.collectors import (
     get_error_summary,
     get_channels_status,
     get_update_status,
+    build_action_items,
     resolve_ip,
     scan_attacker_ip,
     get_ip_geolocation,
@@ -136,6 +137,29 @@ class CollectorDaemon:
                 self.recorder.record_network(collected["network_activity"])
         except Exception as e:
             log.warning("Failed to record metrics: %s", e)
+
+        # Record SITREP data (channels, update, action items)
+        try:
+            channels = collected.get("channels_status",
+                                     self._cached_data.get("channels_status", []))
+            update_info = collected.get("update_status",
+                                        self._cached_data.get("update_status", {}))
+            cron_data = collected.get("cron_jobs",
+                                      self._cached_data.get("cron_jobs", {"jobs": []}))
+            security_data = collected.get("security_status",
+                                          self._cached_data.get("security_status", {}))
+            health = collected.get("server_health",
+                                    self._cached_data.get("server_health", {}))
+            action_items = build_action_items(
+                cron_data, security_data, channels, update_info, health,
+            )
+            self.recorder.record_sitrep(
+                channels=channels,
+                update_info=update_info,
+                action_items=action_items,
+            )
+        except Exception as e:
+            log.warning("Failed to record SITREP: %s", e)
 
         sources = ", ".join(collected.keys())
         log.info("Collected: %s", sources)

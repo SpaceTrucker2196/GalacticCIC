@@ -4,7 +4,6 @@ from setuptools import setup, find_packages
 
 setup(
     name="galactic-cic",
-    version="3.0.0",
     description="Claw Information Center TUI for OpenClaw operations monitoring",
     author="SpaceTrucker2196",
     license="MIT",
@@ -18,11 +17,13 @@ setup(
             "flake8",
         ],
     },
+    version="3.1.0",
     entry_points={
         "console_scripts": [
             "galactic_cic=galactic_cic.app:main",
             "galactic-cic=galactic_cic.app:main",
             "galactic-cic-collector=galactic_cic.collector_daemon:main",
+            "gcic=galactic_cic.cli:main",
         ],
     },
 )
