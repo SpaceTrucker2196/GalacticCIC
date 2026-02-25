@@ -117,6 +117,10 @@ class CICDashboard:
     def _init_colors(self):
         """Set up curses color pairs from theme system."""
         theme.init_colors()
+        # Re-apply background after theme change to keep it black
+        if self.stdscr:
+            bg = theme.get_attr(theme.NORMAL)
+            self.stdscr.bkgd(' ', bg)
 
     def _seconds_until_refresh(self):
         """Seconds until next refresh."""
@@ -597,14 +601,10 @@ class CICDashboard:
 
         self._init_colors()
 
-        # Fill background
-        h, w = stdscr.getmaxyx()
+        # Force black background — set the window background attribute
         bg = theme.get_attr(theme.NORMAL)
-        try:
-            for row in range(h):
-                stdscr.addnstr(row, 0, " " * w, w, bg)
-        except curses.error:
-            pass
+        stdscr.bkgd(' ', bg)
+        stdscr.clear()
 
         while self.running:
             # Handle input
