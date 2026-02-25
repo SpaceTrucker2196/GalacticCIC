@@ -108,11 +108,35 @@ class CICDashboard:
         self.nmap_scanning = False
 
         # Rolling in-memory sparkline histories (one entry per FAST refresh)
-        self._cpu_history: list[float] = []
-        self._mem_history: list[float] = []
-        self._disk_history: list[float] = []
-        self._net_history: list[int] = []
         self._HISTORY_MAX = 60
+        self._cpu_history, self._mem_history, self._disk_history, self._net_history = \
+            self._load_historical_sparklines()
+
+    def _load_historical_sparklines(self):
+        """Pre-populate sparkline histories from SQLite on startup."""
+        cpu, mem, disk, net = [], [], [], []
+        try:
+            rows = self.db.get_recent_server_metrics(hours=1, limit=self._HISTORY_MAX)
+            # Rows are newest-first, reverse for chronological order
+            for row in reversed(rows):
+                cpu.append(row[0] or 0)
+                mem_used = row[1] or 0
+                mem_total = row[2] or 1
+                mem_pct = (mem_used / mem_total * 100) if mem_total > 0 else 0
+                disk_used = row[3] or 0
+                disk_total = row[4] or 1
+                disk_pct = (disk_used / disk_total * 100) if disk_total > 0 else 0
+                mem.append(mem_pct)
+                disk.append(disk_pct)
+        except Exception:
+            pass
+        try:
+            net_rows = self.db.get_recent_network_metrics(hours=1, limit=self._HISTORY_MAX)
+            for row in reversed(net_rows):
+                net.append(row[0] or 0)
+        except Exception:
+            pass
+        return cpu, mem, disk, net
 
     def _init_colors(self):
         """Set up curses color pairs from theme system."""

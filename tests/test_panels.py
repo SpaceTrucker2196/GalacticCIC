@@ -990,43 +990,35 @@ class TestSparklineRollingHistory(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestSecurityNmapIndicator(unittest.TestCase):
-    """Test NMAP indicator in security panel."""
+    """Test NMAP indicator and attacker scan summary in security panel."""
 
-    def test_nmap_indicator_present(self):
-        panel = SecurityPanel()
-        panel.ssh_summary = {"accepted": [], "failed": []}
-        data = {"ssh_intrusions": 0, "ports_detail": []}
-        st = panel._build_content(data)
-        self.assertIn("[NMAP]", st.plain)
-
-    def test_nmap_scanning_yellow(self):
+    def test_nmap_title_changes_when_scanning(self):
         panel = SecurityPanel()
         panel.nmap_scanning = True
-        panel.ssh_summary = {"accepted": [], "failed": []}
-        data = {"ssh_intrusions": 0, "ports_detail": []}
-        st = panel._build_content(data)
-        # Find the span covering [NMAP]
-        nmap_pos = st.plain.index("[NMAP]")
-        nmap_spans = [s for s in st._spans
-                      if s.start <= nmap_pos < s.end]
-        self.assertTrue(
-            any(s.style == "yellow" for s in nmap_spans),
-            "NMAP indicator should be yellow when scanning"
-        )
+        self.assertEqual(panel.TITLE_NMAP, "Security Status [NMAP]")
 
-    def test_nmap_idle_dim(self):
+    def test_attacker_scans_displayed(self):
         panel = SecurityPanel()
-        panel.nmap_scanning = False
         panel.ssh_summary = {"accepted": [], "failed": []}
+        panel.attacker_scans = {
+            "1.2.3.4": {"open_ports": "22,80", "os_guess": "Linux"},
+        }
+        panel.geo_data = {"1.2.3.4": {"country_code": "CN"}}
+        data = {"ssh_intrusions": 5, "ports_detail": []}
+        st = panel._build_content(data)
+        self.assertIn("Attacker Scans", st.plain)
+        self.assertIn("1.2.3.4", st.plain)
+        self.assertIn("22,80", st.plain)
+        self.assertIn("[CN]", st.plain)
+
+    def test_no_attacker_scans_shows_clear(self):
+        panel = SecurityPanel()
+        panel.ssh_summary = {"accepted": [], "failed": []}
+        panel.attacker_scans = {}
+        panel.last_nmap_time = "14:30:00"
         data = {"ssh_intrusions": 0, "ports_detail": []}
         st = panel._build_content(data)
-        nmap_pos = st.plain.index("[NMAP]")
-        nmap_spans = [s for s in st._spans
-                      if s.start <= nmap_pos < s.end]
-        self.assertTrue(
-            any(s.style == "dim" for s in nmap_spans),
-            "NMAP indicator should be dim when idle"
-        )
+        self.assertIn("No attackers scanned", st.plain)
 
 
 # ---------------------------------------------------------------------------

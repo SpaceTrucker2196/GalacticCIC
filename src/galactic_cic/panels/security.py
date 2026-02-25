@@ -8,6 +8,7 @@ class SecurityPanel(BasePanel):
     """Panel showing security status."""
 
     TITLE = "Security Status"
+    TITLE_NMAP = "Security Status [NMAP]"
 
     def __init__(self):
         super().__init__()
@@ -22,6 +23,28 @@ class SecurityPanel(BasePanel):
         self.attacker_scans = {}  # ip -> {open_ports, os_guess}
         self.geo_data = {}  # ip -> {country_code, city, isp}
         self.nmap_scanning = False
+
+    def draw(self, win, y, x, height, width, color_normal, color_highlight,
+             color_warn, color_error, color_dim):
+        """Override to show [NMAP] indicator in title when scanning."""
+        # Swap title when nmap is active
+        if self.nmap_scanning:
+            self.TITLE = self.TITLE_NMAP
+        else:
+            self.TITLE = "Security Status"
+        super().draw(win, y, x, height, width, color_normal, color_highlight,
+                     color_warn, color_error, color_dim)
+
+        # If nmap scanning, redraw just the [NMAP] part of the title in yellow
+        if self.nmap_scanning:
+            import curses
+            title_str = f" {self.TITLE} "
+            nmap_pos = title_str.find("[NMAP]")
+            if nmap_pos >= 0:
+                try:
+                    win.addstr(y, x + 2 + nmap_pos, "[NMAP]", color_warn)
+                except curses.error:
+                    pass
 
     def update(self, data, ssh_summary=None, last_nmap_time=None,
                attacker_scans=None, geo_data=None, nmap_scanning=None):
@@ -131,11 +154,26 @@ class SecurityPanel(BasePanel):
         else:
             st.append("  RootLogin: Disabled", "green")
 
-        # NMAP indicator
-        if self.nmap_scanning:
-            st.append("  [NMAP]\n", "yellow")
-        else:
-            st.append("  [NMAP]\n", "dim")
+        st.append("\n")
+
+        # Attacker Scan Summary
+        if self.attacker_scans:
+            st.append("  Attacker Scans:\n", "table_heading")
+            if self.last_nmap_time:
+                st.append(f"  Last scan: {self.last_nmap_time}\n", "green")
+            for ip, scan in self.attacker_scans.items():
+                ports = scan.get("open_ports", "none")
+                os_guess = scan.get("os_guess", "")
+                cc = self._get_cc(ip)
+                st.append(f"   {ip:<18}", "red")
+                st.append(f" [{cc}]", "yellow")
+                if ports and ports != "none":
+                    st.append(f"  ports: {ports}", "red")
+                if os_guess:
+                    st.append(f"  os: {os_guess}", "red")
+                st.append("\n")
+        elif self.last_nmap_time:
+            st.append(f"  Last nmap: {self.last_nmap_time}  No attackers scanned\n", "green")
 
         return st
 
@@ -143,23 +181,22 @@ class SecurityPanel(BasePanel):
         """Render security status content into curses window."""
         st = self._build_content(self.security_data)
         lines = st.plain.split("\n")
+
+        # Build a set of failed IPs for quick lookup
+        failed_ips = set()
+        for e in self.ssh_summary.get("failed", []):
+            ip = e.get("ip", "")
+            if ip:
+                failed_ips.add(ip)
+
         for i, line in enumerate(lines[:height]):
             if not line:
                 continue
-            # Handle lines with [NMAP] indicator — split and color separately
-            if "[NMAP]" in line:
-                nmap_pos = line.index("[NMAP]")
-                prefix = line[:nmap_pos]
-                # Draw prefix (RootLogin part)
-                prefix_attr = self.c_warn if "Enabled" in prefix else self.c_normal
-                self._safe_addstr(win, y + i, x, prefix, prefix_attr, width)
-                # Draw [NMAP] with correct color
-                nmap_attr = self.c_warn if self.nmap_scanning else self.c_dim
-                self._safe_addstr(win, y + i, x + len(prefix), "[NMAP]", nmap_attr, width - len(prefix))
-                continue
             attr = self.c_normal
-            if "SSH Logins" in line or "SSH Failed" in line:
+            if "SSH Logins" in line or "SSH Failed" in line or "Attacker Scans" in line:
                 attr = self.c_table_heading
+            elif "Last scan:" in line or "Last nmap:" in line:
+                attr = self.c_normal
             elif "failed attempts" in line:
                 intrusions = self.security_data.get("ssh_intrusions", 0)
                 attr = self.c_error if intrusions >= 10 else self.c_warn
@@ -172,7 +209,6 @@ class SecurityPanel(BasePanel):
                 attr = self.c_warn
             elif "ports:" in line or "os:" in line:
                 attr = self.c_error
-            elif self.ssh_summary.get("failed") and \
-                    any(e.get("ip", "") in line for e in self.ssh_summary["failed"]):
+            elif any(ip in line for ip in failed_ips):
                 attr = self.c_error
             self._safe_addstr(win, y + i, x, line, attr, width)

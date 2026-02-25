@@ -31,6 +31,9 @@ from galactic_cic.data.collectors import (
     get_error_summary,
     get_channels_status,
     get_update_status,
+    resolve_ip,
+    scan_attacker_ip,
+    get_ip_geolocation,
 )
 from galactic_cic.db.database import MetricsDB
 from galactic_cic.db.recorder import MetricsRecorder
@@ -46,6 +49,7 @@ log = logging.getLogger(__name__)
 TIER_FAST = 30       # server health, top processes
 TIER_MEDIUM = 120    # cron, activity, logs, network
 TIER_SLOW = 300      # agents, openclaw status, security, channels, update
+TIER_GLACIAL = 900   # attacker scans, geolocation, DNS resolution
 
 
 class CollectorDaemon:
@@ -57,6 +61,7 @@ class CollectorDaemon:
         self.db = MetricsDB()
         self.recorder = MetricsRecorder(self.db)
         self._timestamps = {}  # source -> monotonic time
+        self._cached_data = {}  # source -> last result
 
     def _is_due(self, source, ttl):
         now = time.monotonic()
@@ -114,6 +119,7 @@ class CollectorDaemon:
                 log.warning("Failed to collect %s: %s", key, result)
             else:
                 collected[key] = result
+                self._cached_data[key] = result
                 self._mark(key)
 
         # Record to database
@@ -133,6 +139,47 @@ class CollectorDaemon:
 
         sources = ", ".join(collected.keys())
         log.info("Collected: %s", sources)
+
+        # ── GLACIAL tier: scan top failed SSH IPs ──
+        if self._is_due("glacial_enrichment", TIER_GLACIAL):
+            await self._glacial_enrichment(collected)
+            self._mark("glacial_enrichment")
+
+    async def _glacial_enrichment(self, collected):
+        """DNS resolution, geolocation, and nmap scans for top failed SSH IPs."""
+        ssh_summary = collected.get("ssh_login_summary",
+                                     self._cached_data.get("ssh_login_summary",
+                                                           {"accepted": [], "failed": []}))
+        if not isinstance(ssh_summary, dict):
+            return
+
+        failed = ssh_summary.get("failed", [])
+        if not failed:
+            return
+
+        log.info("Glacial: scanning top %d failed SSH IPs", min(len(failed), 5))
+        scanned = 0
+        for entry in failed[:5]:
+            ip = entry.get("ip", "")
+            if not ip:
+                continue
+            try:
+                # DNS resolution (uses DB cache)
+                hostname = await resolve_ip(ip, db=self.db)
+                entry["hostname"] = hostname
+
+                # Geolocation (uses DB cache)
+                await get_ip_geolocation(ip, db=self.db)
+
+                # Nmap scan of attacker (uses DB cache)
+                result = await scan_attacker_ip(ip, db=self.db)
+                scanned += 1
+                ports = result.get("open_ports", "")
+                log.info("  Scanned %s: ports=%s", ip, ports or "none")
+            except Exception as e:
+                log.warning("  Failed to scan %s: %s", ip, e)
+
+        log.info("Glacial: scanned %d attacker IPs", scanned)
 
     async def run(self):
         """Main collection loop."""
