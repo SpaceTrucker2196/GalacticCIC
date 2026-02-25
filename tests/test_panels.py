@@ -55,7 +55,11 @@ def _init_theme_for_test():
     """Initialize theme with mocked curses calls."""
     _fake_pairs.clear()
     theme._initialized = False
+    theme._dark_green_available = False
     theme._current_theme_name = theme.DEFAULT_THEME
+    import curses as _c
+    _orig_colors = getattr(_c, 'COLORS', 8)
+    _c.COLORS = 256
     with patch("curses.start_color", _fake_start_color), \
          patch("curses.use_default_colors", _fake_use_default_colors), \
          patch("curses.init_pair", _fake_init_pair), \
@@ -63,6 +67,7 @@ def _init_theme_for_test():
          patch("curses.can_change_color", _fake_can_change_color), \
          patch("curses.init_color", _fake_init_color):
         theme.init_colors("phosphor")
+    _c.COLORS = _orig_colors
 
 
 def _get_attr_mocked(role):

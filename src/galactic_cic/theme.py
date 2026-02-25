@@ -113,12 +113,16 @@ _current_theme_name = DEFAULT_THEME
 _initialized = False
 
 
+_dark_green_available = False
+
+
 def _resolve_color(name):
     """Resolve a string color name to a curses constant.
 
     'default' or 'black' maps to -1 (terminal default background)
     when use_default_colors() has been called.
-    'darkgreen' maps to our custom dark green color (ID 16).
+    'darkgreen' maps to our custom dark green color (ID 16) if available,
+    otherwise falls back to terminal default (-1).
     """
     mapping = {
         "green": curses.COLOR_GREEN,
@@ -126,9 +130,9 @@ def _resolve_color(name):
         "red": curses.COLOR_RED,
         "white": curses.COLOR_WHITE,
         "cyan": curses.COLOR_CYAN,
-        "black": -1,       # use terminal default background
+        "black": -1,
         "default": -1,
-        "darkgreen": DARK_GREEN_ID,
+        "darkgreen": DARK_GREEN_ID if _dark_green_available else -1,
         "magenta": curses.COLOR_MAGENTA,
         "blue": curses.COLOR_BLUE,
     }
@@ -188,12 +192,14 @@ def init_colors(theme_name=None):
     curses.use_default_colors()
 
     # Define dark green background color if terminal supports custom colors
+    global _dark_green_available
+    _dark_green_available = False
     try:
-        if curses.can_change_color():
-            # RGB values are 0-1000 in curses. Dark green: ~#0a1a0a
+        if curses.can_change_color() and curses.COLORS > DARK_GREEN_ID:
             curses.init_color(DARK_GREEN_ID, 40, 100, 40)
-    except curses.error:
-        pass  # Not in a real terminal (e.g. tests)
+            _dark_green_available = True
+    except (curses.error, ValueError):
+        pass  # Terminal doesn't support custom colors
 
     theme = get_theme()
     for role, pair_id in PAIR_IDS.items():
