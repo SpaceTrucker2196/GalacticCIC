@@ -1,5 +1,6 @@
 """Cron Jobs panel for curses TUI."""
 
+from galactic_cic import theme
 from galactic_cic.panels.base import BasePanel, StyledText, Table
 
 
@@ -9,10 +10,10 @@ class CronJobsPanel(BasePanel):
     TITLE = "Cron Jobs"
 
     STATUS_ICONS = {
-        "ok": "✓",
-        "error": "✗",
-        "idle": "◌",
-        "running": "↻",
+        "ok": "\u2713",
+        "error": "\u2717",
+        "idle": "\u25cc",
+        "running": "\u21bb",
     }
 
     def __init__(self):
@@ -33,8 +34,18 @@ class CronJobsPanel(BasePanel):
             header=True,
         )
         for job in data.get("jobs", []):
-            name = job.get("name", "unknown")[:17]
+            name = job.get("name", "unknown")
             status = job.get("status", "idle")
+            error_count = job.get("error_count", 0)
+
+            # Show error count inline with job name
+            if status == "error" and error_count and error_count > 0:
+                suffix = f"({error_count}err)"
+                max_len = 17 - len(suffix) - 1
+                name = name[:max_len] + " " + suffix
+            else:
+                name = name[:17]
+
             last_run = job.get("last_run", "--")[:8]
             next_run = job.get("next_run", "--")[:8]
             icon = self.STATUS_ICONS.get(status, "?")
@@ -43,7 +54,7 @@ class CronJobsPanel(BasePanel):
         return table
 
     def _build_content(self, data):
-        """Build content as StyledText — used by tests and rendering."""
+        """Build content as StyledText -- used by tests and rendering."""
         st = StyledText()
 
         jobs = data.get("jobs", [])
@@ -55,14 +66,23 @@ class CronJobsPanel(BasePanel):
 
         table = self._build_table(data)
         table_st = table.render()
-        st.append(table_st.plain, "green")
 
-        # Check for any errors in the plain text for test compatibility
-        for job in jobs:
-            if job.get("status") == "error":
-                errors = job.get("error_count", 0)
-                if errors and errors > 0:
-                    st.append(f"({errors}err)", "red")
+        # Preserve per-row styling from the table (don't flatten to .plain)
+        offset = len(st._text)
+        st._text += table_st._text
+        for span in table_st._spans:
+            st._spans.append(StyledText.Span(
+                span.start + offset, span.end + offset, span.style
+            ))
+
+        # Summary line
+        error_jobs = [j for j in jobs if j.get("status") == "error"]
+        total_errors = sum(j.get("error_count", 0) for j in error_jobs)
+        if total_errors > 0:
+            st.append(
+                f"\n  {len(error_jobs)} job(s) with {total_errors} error(s)\n",
+                "red",
+            )
 
         return st
 
@@ -72,7 +92,18 @@ class CronJobsPanel(BasePanel):
 
         if not jobs:
             self._safe_addstr(win, y, x, "  No cron jobs found", self.c_normal, width)
+            if self.cron_data.get("error"):
+                err_msg = f"  Error: {self.cron_data['error'][:width - 10]}"
+                self._safe_addstr(win, y + 1, x, err_msg, self.c_error, width)
             return
 
         table = self._build_table(self.cron_data)
-        table.draw(win, y, x, width, self.c_normal, self.c_error, self.c_warn)
+        rows_drawn = table.draw(win, y, x, width, self.c_normal, self.c_error, self.c_warn)
+
+        # Summary below table
+        error_jobs = [j for j in jobs if j.get("status") == "error"]
+        total_errors = sum(j.get("error_count", 0) for j in error_jobs)
+        summary_y = y + rows_drawn
+        if total_errors > 0 and summary_y < y + height:
+            msg = f"  {len(error_jobs)} job(s) with {total_errors} error(s)"
+            self._safe_addstr(win, summary_y, x, msg, self.c_error, width)

@@ -17,6 +17,7 @@ from galactic_cic.data.collectors import (
     get_activity_log,
     get_network_activity,
     get_top_ips,
+    get_top_processes,
     get_ssh_login_summary,
     resolve_ip,
     scan_attacker_ip,
@@ -27,6 +28,7 @@ from galactic_cic.data.collectors import (
 from galactic_cic.db.database import MetricsDB
 from galactic_cic.db.recorder import MetricsRecorder
 from galactic_cic.db.trends import TrendCalculator
+from galactic_cic import theme
 from galactic_cic.panels.agents import AgentFleetPanel
 from galactic_cic.panels.server import ServerHealthPanel
 from galactic_cic.panels.cron import CronJobsPanel
@@ -52,8 +54,14 @@ class CICDashboard:
         Binding("?", "show_help", "Help"),
     ]
 
-    # All refreshes unified to 30 seconds
+    # Fast tier drives the display loop (30s countdown)
     REFRESH_INTERVAL = 30
+
+    # Tiered refresh TTLs (seconds)
+    TIER_FAST = 30       # server_health, top_processes
+    TIER_MEDIUM = 120    # cron, activity, openclaw_logs, error_summary, network
+    TIER_SLOW = 300      # agents, openclaw_status, security, ssh_login_summary
+    TIER_GLACIAL = 900   # DNS resolution, geolocation, attacker scans
 
     def __init__(self):
         self.stdscr = None
@@ -76,14 +84,8 @@ class CICDashboard:
             ActivityLogPanel(),
         ]
 
-        # Color pair indices
-        self.CP_NORMAL = 1
-        self.CP_HIGHLIGHT = 2
-        self.CP_WARN = 3
-        self.CP_ERROR = 4
-        self.CP_DIM = 5
-        self.CP_HEADER = 6
-        self.CP_FOOTER = 7
+        # Load theme from config
+        theme.load_config()
 
         # Background data refresh state
         self._last_refresh_time = 0.0
@@ -91,21 +93,24 @@ class CICDashboard:
         self._refresh_thread = None
         self._force_refresh = True  # force on startup
 
-    def _init_colors(self):
-        """Set up curses color pairs for green phosphor theme."""
-        curses.start_color()
-        curses.use_default_colors()
-        bg = curses.COLOR_BLACK
-        curses.init_pair(self.CP_NORMAL, curses.COLOR_GREEN, bg)
-        curses.init_pair(self.CP_HIGHLIGHT, curses.COLOR_GREEN, bg)
-        curses.init_pair(self.CP_WARN, curses.COLOR_YELLOW, bg)
-        curses.init_pair(self.CP_ERROR, curses.COLOR_RED, bg)
-        curses.init_pair(self.CP_DIM, curses.COLOR_GREEN, bg)
-        curses.init_pair(self.CP_HEADER, curses.COLOR_GREEN, bg)
-        curses.init_pair(self.CP_FOOTER, curses.COLOR_GREEN, bg)
+        # Tiered data collection state
+        self._collection_timestamps = {}  # source_name -> monotonic timestamp
+        self._cached_data = {}            # source_name -> last collected result
+        self._force_all_tiers = True      # force all on startup
 
-    def _color(self, pair_id):
-        return curses.color_pair(pair_id)
+        # NMAP scanning flag (True while scans are active)
+        self.nmap_scanning = False
+
+        # Rolling in-memory sparkline histories (one entry per FAST refresh)
+        self._cpu_history: list[float] = []
+        self._mem_history: list[float] = []
+        self._disk_history: list[float] = []
+        self._net_history: list[int] = []
+        self._HISTORY_MAX = 60
+
+    def _init_colors(self):
+        """Set up curses color pairs from theme system."""
+        theme.init_colors()
 
     def _seconds_until_refresh(self):
         """Seconds until next refresh."""
@@ -116,7 +121,7 @@ class CICDashboard:
     def _draw_header(self):
         """Draw header with real-time clock and refresh countdown."""
         h, w = self.stdscr.getmaxyx()
-        header_attr = self._color(self.CP_HEADER) | curses.A_BOLD
+        header_attr = theme.get_attr(theme.HEADER)
 
         try:
             self.stdscr.addnstr(0, 0, " " * w, w, header_attr)
@@ -157,12 +162,12 @@ class CICDashboard:
     def _draw_footer(self):
         h, w = self.stdscr.getmaxyx()
         footer_y = h - 1
-        footer_attr = self._color(self.CP_FOOTER)
+        footer_attr = theme.get_attr(theme.FOOTER)
         try:
             self.stdscr.addnstr(footer_y, 0, " " * w, w, footer_attr)
         except curses.error:
             pass
-        keys = "q:Quit  r:Refresh  1-5:Panel  Tab:Cycle  ?:Help"
+        keys = "q:Quit  r:Refresh  1-5:Panel  Tab:Cycle  t:Theme  ?:Help"
         try:
             self.stdscr.addnstr(footer_y, 2, keys, w - 4, footer_attr)
         except curses.error:
@@ -188,7 +193,7 @@ class CICDashboard:
         box_h = len(help_lines) + 2
         start_y = max(0, (h - box_h) // 2)
         start_x = max(0, (w - box_w) // 2)
-        attr = self._color(self.CP_HIGHLIGHT) | curses.A_BOLD
+        attr = theme.get_attr(theme.HIGHLIGHT)
         try:
             self.stdscr.addnstr(start_y, start_x, "\u250c" + "\u2500" * (box_w - 2) + "\u2510", box_w, attr)
             for i, line in enumerate(help_lines):
@@ -218,11 +223,11 @@ class CICDashboard:
 
     def _draw_panels(self):
         layout = self._layout_panels()
-        c_normal = self._color(self.CP_NORMAL)
-        c_highlight = self._color(self.CP_HIGHLIGHT) | curses.A_BOLD
-        c_warn = self._color(self.CP_WARN)
-        c_error = self._color(self.CP_ERROR) | curses.A_BOLD
-        c_dim = self._color(self.CP_DIM)
+        c_normal = theme.get_attr(theme.NORMAL)
+        c_highlight = theme.get_attr(theme.HIGHLIGHT)
+        c_warn = theme.get_attr(theme.WARNING)
+        c_error = theme.get_attr(theme.ERROR)
+        c_dim = theme.get_attr(theme.DIM)
         for idx, y, x, height, width in layout:
             panel = self.panels[idx]
             panel.focused = (idx == self.focused_panel)
@@ -241,36 +246,88 @@ class CICDashboard:
             self._last_refresh_time = time.monotonic()
 
     async def _refresh_all_data(self):
-        """Refresh all panel data. Runs in background thread."""
-        # Run all collectors concurrently
-        results = await asyncio.gather(
-            get_agents_data(),
-            get_openclaw_status(),
-            get_server_health(),
-            get_cron_jobs(),
-            get_security_status(),
-            get_activity_log(),
-            get_network_activity(),
-            get_ssh_login_summary(),
-            get_openclaw_logs(limit=20),
-            get_error_summary(),
-            return_exceptions=True,
-        )
+        """Refresh panel data using tiered collection.
 
-        # Unpack results (use empty dicts for failures)
-        def safe(r, default=None):
-            return r if not isinstance(r, Exception) else (default or {})
+        Only collectors whose TTL has expired are re-run. Cached results
+        from the previous collection are reused for sources that are still
+        fresh. On startup (or manual 'r'), all tiers are forced.
+        """
+        now = time.monotonic()
+        force_all = self._force_all_tiers
+        self._force_all_tiers = False
 
-        agents_data = safe(results[0], {"agents": [], "error": "fetch failed"})
-        status_data = safe(results[1], {"sessions": 0, "gateway_status": "unknown"})
-        health = safe(results[2], {"cpu_percent": 0, "mem_percent": 0, "disk_percent": 0})
-        cron_data = safe(results[3], {"jobs": []})
-        security_data = safe(results[4], {})
-        activity_events = safe(results[5], []) if not isinstance(results[5], Exception) else []
-        network_data = safe(results[6], {"active_connections": 0, "connections": []})
-        ssh_summary = safe(results[7], {"accepted": [], "failed": []})
-        oc_logs = safe(results[8], []) if not isinstance(results[8], Exception) else []
-        errors = safe(results[9], []) if not isinstance(results[9], Exception) else []
+        def is_due(source, ttl):
+            if force_all:
+                return True
+            return (now - self._collection_timestamps.get(source, 0)) >= ttl
+
+        # ── Build task list for due sources ──
+        tasks = {}
+
+        # FAST tier (30s) — lightweight, changes often
+        if is_due("server_health", self.TIER_FAST):
+            tasks["server_health"] = get_server_health()
+        if is_due("top_processes", self.TIER_FAST):
+            tasks["top_processes"] = get_top_processes()
+
+        # MEDIUM tier (2 min) — moderate cost
+        if is_due("cron_jobs", self.TIER_MEDIUM):
+            tasks["cron_jobs"] = get_cron_jobs()
+        if is_due("activity_log", self.TIER_MEDIUM):
+            tasks["activity_log"] = get_activity_log()
+        if is_due("openclaw_logs", self.TIER_MEDIUM):
+            tasks["openclaw_logs"] = get_openclaw_logs(limit=20)
+        if is_due("error_summary", self.TIER_MEDIUM):
+            tasks["error_summary"] = get_error_summary()
+        if is_due("network_activity", self.TIER_MEDIUM):
+            tasks["network_activity"] = get_network_activity()
+
+        # SLOW tier (5 min) — expensive, rarely changes
+        if is_due("agents_data", self.TIER_SLOW):
+            tasks["agents_data"] = get_agents_data()
+        if is_due("openclaw_status", self.TIER_SLOW):
+            tasks["openclaw_status"] = get_openclaw_status()
+        nmap_in_slow = is_due("security_status", self.TIER_SLOW)
+        if nmap_in_slow:
+            self.nmap_scanning = True
+            tasks["security_status"] = get_security_status()
+        if is_due("ssh_login_summary", self.TIER_SLOW):
+            tasks["ssh_login_summary"] = get_ssh_login_summary()
+
+        # ── Run all due tasks concurrently ──
+        if tasks:
+            keys = list(tasks.keys())
+            results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+            for key, result in zip(keys, results):
+                if not isinstance(result, Exception):
+                    self._cached_data[key] = result
+                self._collection_timestamps[key] = now
+            if nmap_in_slow:
+                self.nmap_scanning = False
+
+        # ── Read from cache (with safe defaults) ──
+        def cached(key, default):
+            return self._cached_data.get(key, default)
+
+        agents_data = cached("agents_data", {"agents": [], "error": "fetch failed"})
+        status_data = cached("openclaw_status", {"sessions": 0, "gateway_status": "unknown"})
+        health = cached("server_health", {"cpu_percent": 0, "mem_percent": 0, "disk_percent": 0})
+        cron_data = cached("cron_jobs", {"jobs": []})
+        security_data = cached("security_status", {})
+        activity_events = cached("activity_log", [])
+        if not isinstance(activity_events, list):
+            activity_events = []
+        network_data = cached("network_activity", {"active_connections": 0, "connections": []})
+        ssh_summary = cached("ssh_login_summary", {"accepted": [], "failed": []})
+        oc_logs = cached("openclaw_logs", [])
+        if not isinstance(oc_logs, list):
+            oc_logs = []
+        errors = cached("error_summary", [])
+        if not isinstance(errors, list):
+            errors = []
+        processes = cached("top_processes", [])
+        if not isinstance(processes, list):
+            processes = []
 
         # Record metrics to DB
         try:
@@ -290,63 +347,104 @@ class CICDashboard:
             tokens_per_hour = {}
             server_trends = {}
 
-        # Historical sparkline data
+        # Rolling in-memory sparkline data — append on every refresh
+        self._cpu_history.append(health.get("cpu_percent", 0))
+        self._mem_history.append(health.get("mem_percent", 0))
+        self._disk_history.append(health.get("disk_percent", 0))
+        self._net_history.append(network_data.get("active_connections", 0))
+        # Trim to max length
+        if len(self._cpu_history) > self._HISTORY_MAX:
+            self._cpu_history = self._cpu_history[-self._HISTORY_MAX:]
+        if len(self._mem_history) > self._HISTORY_MAX:
+            self._mem_history = self._mem_history[-self._HISTORY_MAX:]
+        if len(self._disk_history) > self._HISTORY_MAX:
+            self._disk_history = self._disk_history[-self._HISTORY_MAX:]
+        if len(self._net_history) > self._HISTORY_MAX:
+            self._net_history = self._net_history[-self._HISTORY_MAX:]
+
+        cpu_history = list(self._cpu_history)
+        mem_history = list(self._mem_history)
+        disk_history = list(self._disk_history)
+        network_history = list(self._net_history)
+
         try:
-            server_hist = self.db.get_recent_server_metrics(hours=1, limit=20)
             server_avgs = self.db.get_server_averages(hours=24)
-            net_hist = self.db.get_recent_network_metrics(hours=1, limit=20)
             net_avg = self.db.get_network_average(hours=24)
-
-            cpu_history = [row["cpu_percent"] for row in reversed(server_hist)]
-            mem_history = [
-                (row["mem_used_mb"] * 100.0 / row["mem_total_mb"])
-                if row["mem_total_mb"] > 0 else 0
-                for row in reversed(server_hist)
-            ]
-            disk_history = [
-                (row["disk_used_gb"] * 100.0 / row["disk_total_gb"])
-                if row["disk_total_gb"] > 0 else 0
-                for row in reversed(server_hist)
-            ]
-            network_history = [row["active_connections"] for row in reversed(net_hist)]
-
-            cpu_history.append(health.get("cpu_percent", 0))
-            mem_history.append(health.get("mem_percent", 0))
-            disk_history.append(health.get("disk_percent", 0))
-            network_history.append(network_data.get("active_connections", 0))
-
             cpu_avg = server_avgs[0] if server_avgs and server_avgs[0] else None
             mem_avg = server_avgs[1] if server_avgs and server_avgs[1] else None
             disk_avg = server_avgs[2] if server_avgs and server_avgs[2] else None
         except Exception:
-            cpu_history = mem_history = disk_history = network_history = []
             cpu_avg = mem_avg = disk_avg = net_avg = None
 
-        # DNS + geolocation for SSH IPs (slower, but in background so OK)
-        geo_data = {}
-        attacker_scans = {}
-        try:
-            all_ips = set()
-            for entry_list in (ssh_summary.get("accepted", []), ssh_summary.get("failed", [])):
-                for entry in entry_list:
+        # ── GLACIAL tier: DNS + geolocation + attacker scans ──
+        glacial_due = is_due("glacial_enrichment", self.TIER_GLACIAL)
+
+        if glacial_due:
+            geo_data = {}
+            attacker_scans = {}
+            try:
+                all_ips = set()
+                for entry_list in (ssh_summary.get("accepted", []), ssh_summary.get("failed", [])):
+                    for entry in entry_list:
+                        ip = entry.get("ip", "")
+                        if ip:
+                            entry["hostname"] = await resolve_ip(ip, db=self.db)
+                            all_ips.add(ip)
+                for ip in all_ips:
+                    geo_data[ip] = await get_ip_geolocation(ip, db=self.db)
+                self.nmap_scanning = True
+                for entry in ssh_summary.get("failed", [])[:3]:
                     ip = entry.get("ip", "")
                     if ip:
-                        entry["hostname"] = await resolve_ip(ip, db=self.db)
-                        all_ips.add(ip)
-            for ip in all_ips:
-                geo_data[ip] = await get_ip_geolocation(ip, db=self.db)
-            for entry in ssh_summary.get("failed", [])[:3]:
-                ip = entry.get("ip", "")
-                if ip:
-                    attacker_scans[ip] = await scan_attacker_ip(ip, db=self.db)
-        except Exception:
-            pass
+                        attacker_scans[ip] = await scan_attacker_ip(ip, db=self.db)
+                self.nmap_scanning = False
+            except Exception:
+                self.nmap_scanning = False
+            self._cached_data["geo_data"] = geo_data
+            self._cached_data["attacker_scans"] = attacker_scans
+            self._collection_timestamps["glacial_enrichment"] = now
+        else:
+            geo_data = cached("geo_data", {})
+            attacker_scans = cached("attacker_scans", {})
 
-        # Top IPs for server panel
+        # Top IPs for server panel (uses resolve_ip with its own 24h DB cache)
         try:
             top_ips = await get_top_ips(network_data, db=self.db)
         except Exception:
             top_ips = []
+
+        # Build external IP summary for activity panel
+        ext_ip_summary = cached("ext_ip_summary", [])
+        if glacial_due:
+            try:
+                all_external = set()
+                # From network connections
+                for ip in network_data.get("peer_ips", {}):
+                    if ip and not ip.startswith("127.") and ip != "::1":
+                        all_external.add(ip)
+                # From SSH logs
+                for entry_list in (ssh_summary.get("accepted", []),
+                                   ssh_summary.get("failed", [])):
+                    for entry in entry_list:
+                        ip = entry.get("ip", "")
+                        if ip:
+                            all_external.add(ip)
+
+                summary = []
+                for ip in sorted(all_external):
+                    hostname = await resolve_ip(ip, db=self.db)
+                    geo = geo_data.get(ip) or await get_ip_geolocation(ip, db=self.db)
+                    scan = attacker_scans.get(ip) or await scan_attacker_ip(ip, db=self.db)
+                    summary.append({
+                        "ip": ip,
+                        "hostname": hostname,
+                        "country": geo.get("country_code", "?"),
+                        "ports": scan.get("open_ports", ""),
+                    })
+                ext_ip_summary = summary
+                self._cached_data["ext_ip_summary"] = ext_ip_summary
+            except Exception:
+                pass
 
         # Update panels (thread-safe since Python GIL protects attribute assignment)
         with self._refresh_lock:
@@ -363,6 +461,7 @@ class CICDashboard:
                 mem_avg=mem_avg,
                 disk_avg=disk_avg,
                 net_avg=net_avg,
+                processes=processes,
             )
             self.panels[2].update(cron_data)
 
@@ -384,12 +483,14 @@ class CICDashboard:
                 last_nmap_time=last_nmap_time,
                 attacker_scans=attacker_scans,
                 geo_data=geo_data,
+                nmap_scanning=self.nmap_scanning,
             )
 
             all_events = (activity_events if isinstance(activity_events, list) else []) + \
                          (oc_logs if isinstance(oc_logs, list) else [])
             all_events.sort(key=lambda e: e.get("time", ""), reverse=True)
-            self.panels[4].update(all_events, errors=errors)
+            self.panels[4].update(all_events, errors=errors,
+                                  ext_ip_summary=ext_ip_summary)
 
     def _maybe_start_refresh(self):
         """Start background refresh if interval elapsed or forced."""
@@ -414,10 +515,14 @@ class CICDashboard:
             return False
         elif key == ord("r"):
             self._force_refresh = True
+            self._force_all_tiers = True
         elif key in (ord("1"), ord("2"), ord("3"), ord("4"), ord("5")):
             self.focused_panel = key - ord("1")
         elif key == ord("\t"):
             self.focused_panel = (self.focused_panel + 1) % 5
+        elif key == ord("t"):
+            theme.cycle_theme()
+            self._init_colors()
         elif key == ord("?"):
             self.show_help_overlay = not self.show_help_overlay
         elif key == 27:
@@ -439,7 +544,7 @@ class CICDashboard:
 
         # Fill background
         h, w = stdscr.getmaxyx()
-        bg = self._color(self.CP_NORMAL)
+        bg = theme.get_attr(theme.NORMAL)
         try:
             for row in range(h):
                 stdscr.addnstr(row, 0, " " * w, w, bg)

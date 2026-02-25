@@ -2,6 +2,8 @@
 
 import curses
 
+from galactic_cic import theme
+
 
 class StyledText:
     """Lightweight text container compatible with test assertions.
@@ -119,7 +121,7 @@ class Table:
         st = StyledText()
 
         if self.show_header:
-            # Header row
+            # Header row — uses table_heading style (grey)
             header_cells = []
             for i, col in enumerate(self.columns):
                 header_cells.append(self._format_cell(col, self.widths[i]))
@@ -127,7 +129,7 @@ class Table:
                 line = self.VSEP + self.VSEP.join(header_cells) + self.VSEP
             else:
                 line = " ".join(header_cells)
-            st.append(line + "\n", "green")
+            st.append(line + "\n", "table_heading")
 
             # Header separator
             sep = self._make_separator(
@@ -136,7 +138,7 @@ class Table:
                 self.RJ if self.borders else "",
                 self.HSEP,
             )
-            st.append(sep + "\n", "green")
+            st.append(sep + "\n", "table_heading")
 
         # Data rows
         for row_idx, row in enumerate(self.rows):
@@ -170,6 +172,9 @@ class Table:
         c_warn = c_warn or c_normal
         row_num = 0
 
+        # Grey heading color from theme system
+        c_heading = theme.get_attr(theme.TABLE_HEADING)
+
         style_map = {
             "green": c_normal,
             "red": c_error,
@@ -179,7 +184,7 @@ class Table:
         }
 
         if self.show_header:
-            # Header
+            # Header — grey color from theme
             header_cells = []
             for i, col in enumerate(self.columns):
                 header_cells.append(self._format_cell(col, self.widths[i]))
@@ -188,7 +193,7 @@ class Table:
             else:
                 line = " ".join(header_cells)
             try:
-                win.addnstr(y + row_num, x, line, max_width, c_normal | curses.A_BOLD)
+                win.addnstr(y + row_num, x, line, max_width, c_heading)
             except curses.error:
                 pass
             row_num += 1
@@ -201,7 +206,7 @@ class Table:
                 self.HSEP,
             )
             try:
-                win.addnstr(y + row_num, x, sep, max_width, c_normal)
+                win.addnstr(y + row_num, x, sep, max_width, c_heading)
             except curses.error:
                 pass
             row_num += 1
@@ -255,6 +260,7 @@ class BasePanel:
         self.c_warn = color_warn
         self.c_error = color_error
         self.c_dim = color_dim
+        self.c_table_heading = theme.get_attr(theme.TABLE_HEADING)
 
         border_color = color_highlight if self.focused else color_normal
 

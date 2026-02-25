@@ -149,6 +149,10 @@ async def get_openclaw_status() -> dict[str, Any]:
     return result
 
 
+# Module-level cache for /proc/stat CPU delta measurement
+_prev_cpu_stat: list[int] | None = None
+
+
 async def get_server_health() -> dict[str, Any]:
     """Get server health metrics from system commands."""
     result: dict[str, Any] = {
@@ -219,22 +223,21 @@ async def get_server_health() -> dict[str, Any]:
             if match:
                 result["uptime"] = match.group(1).strip()
 
-    # CPU from /proc/stat
-    stdout1, _, _ = await run_command("head -1 /proc/stat")
-    await asyncio.sleep(0.1)
-    stdout2, _, _ = await run_command("head -1 /proc/stat")
-
+    # CPU from /proc/stat — compare against cached previous reading (no sleep)
+    global _prev_cpu_stat
+    stdout, _, _ = await run_command("head -1 /proc/stat")
     try:
-        cpu1 = [int(x) for x in stdout1.split()[1:8]]
-        cpu2 = [int(x) for x in stdout2.split()[1:8]]
-        idle1 = cpu1[3] + cpu1[4]
-        idle2 = cpu2[3] + cpu2[4]
-        total1 = sum(cpu1)
-        total2 = sum(cpu2)
-        total_diff = total2 - total1
-        idle_diff = idle2 - idle1
-        if total_diff > 0:
-            result["cpu_percent"] = ((total_diff - idle_diff) / total_diff) * 100
+        cpu_now = [int(x) for x in stdout.split()[1:8]]
+        if _prev_cpu_stat is not None:
+            idle_prev = _prev_cpu_stat[3] + _prev_cpu_stat[4]
+            idle_now = cpu_now[3] + cpu_now[4]
+            total_prev = sum(_prev_cpu_stat)
+            total_now = sum(cpu_now)
+            total_diff = total_now - total_prev
+            idle_diff = idle_now - idle_prev
+            if total_diff > 0:
+                result["cpu_percent"] = ((total_diff - idle_diff) / total_diff) * 100
+        _prev_cpu_stat = cpu_now
     except (ValueError, IndexError):
         pass
 
@@ -291,19 +294,27 @@ async def get_cron_jobs() -> dict[str, Any]:
     jobs = []
     if rc == 0 and stdout.strip():
         lines = stdout.strip().split("\n")
-        if len(lines) < 2:
+
+        # Skip Doctor diagnostic output — find the actual header line
+        header_idx = None
+        for i, line in enumerate(lines):
+            if line.startswith("ID") and "Name" in line and "Schedule" in line:
+                header_idx = i
+                break
+
+        if header_idx is None or header_idx + 1 >= len(lines):
             return {"jobs": jobs, "error": None}
 
         # Parse header to find column positions
-        header = lines[0]
+        header = lines[header_idx]
         col_positions = {}
-        for col_name in ["Name", "Next", "Last", "Status", "Agent"]:
+        for col_name in ["Name", "Next", "Last", "Status", "Target", "Agent"]:
             idx = header.find(col_name)
             if idx >= 0:
                 col_positions[col_name] = idx
 
         # Parse each data line using column positions
-        for line in lines[1:]:
+        for line in lines[header_idx + 1:]:
             if not line.strip():
                 continue
             try:
@@ -311,12 +322,15 @@ async def get_cron_jobs() -> dict[str, Any]:
                 next_start = col_positions.get("Next", 70)
                 last_start = col_positions.get("Last", 81)
                 status_start = col_positions.get("Status", 92)
+                # Use Target column as status end boundary if present, else Agent
+                status_end = col_positions.get("Target",
+                             col_positions.get("Agent", 112))
                 agent_start = col_positions.get("Agent", 112)
 
-                name = line[name_start:next_start].strip().rstrip(".")
+                name = line[name_start:next_start].strip().rstrip(".")[:22].strip()
                 next_run = line[next_start:last_start].strip()
                 last_run = line[last_start:status_start].strip()
-                status_field = line[status_start:agent_start].strip() if agent_start else line[status_start:].split()[0]
+                status_field = line[status_start:status_end].strip() if status_end else line[status_start:].split()[0]
                 agent = line[agent_start:].strip().split()[0] if agent_start and len(line) > agent_start else ""
 
                 # Normalize status
@@ -334,7 +348,7 @@ async def get_cron_jobs() -> dict[str, Any]:
                     last_run = ""
 
                 jobs.append({
-                    "name": name[:22],
+                    "name": name,
                     "status": status,
                     "last_run": last_run,
                     "next_run": next_run,
@@ -834,3 +848,32 @@ async def get_error_summary(ssh_summary=None) -> list[dict[str, Any]]:
             errors.append(ev)
 
     return errors
+
+
+async def get_top_processes(count: int = 5) -> list[dict[str, Any]]:
+    """Get top processes sorted by CPU usage.
+
+    Returns list of dicts: pid, user, cpu, mem, command.
+    """
+    stdout, stderr, rc = await run_command(
+        f"ps aux --sort=-%cpu | head -{count + 1}"
+    )
+    if rc != 0 or not stdout.strip():
+        return []
+
+    lines = stdout.strip().split("\n")
+    if len(lines) < 2:
+        return []
+
+    processes = []
+    for line in lines[1:]:  # Skip ps header
+        parts = line.split(None, 10)
+        if len(parts) >= 11:
+            processes.append({
+                "pid": parts[1],
+                "user": parts[0][:8],
+                "cpu": parts[2],
+                "mem": parts[3],
+                "command": parts[10].split("/")[-1][:20],
+            })
+    return processes

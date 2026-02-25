@@ -1,5 +1,6 @@
 """Security Status panel for curses TUI."""
 
+from galactic_cic import theme
 from galactic_cic.panels.base import BasePanel, StyledText, Table
 
 
@@ -20,9 +21,10 @@ class SecurityPanel(BasePanel):
         self.last_nmap_time = ""
         self.attacker_scans = {}  # ip -> {open_ports, os_guess}
         self.geo_data = {}  # ip -> {country_code, city, isp}
+        self.nmap_scanning = False
 
     def update(self, data, ssh_summary=None, last_nmap_time=None,
-               attacker_scans=None, geo_data=None):
+               attacker_scans=None, geo_data=None, nmap_scanning=None):
         """Update panel data from collectors."""
         self.security_data = data or self.security_data
         if ssh_summary is not None:
@@ -33,6 +35,8 @@ class SecurityPanel(BasePanel):
             self.attacker_scans = attacker_scans
         if geo_data is not None:
             self.geo_data = geo_data
+        if nmap_scanning is not None:
+            self.nmap_scanning = nmap_scanning
 
     def _get_cc(self, ip):
         """Get 2-letter country code for an IP."""
@@ -80,7 +84,7 @@ class SecurityPanel(BasePanel):
         failed = self.ssh_summary.get("failed", [])
 
         if accepted:
-            st.append("  SSH Logins (24h):\n", "green")
+            st.append("  SSH Logins (24h):\n", "table_heading")
             for entry in accepted:
                 ip = entry.get("ip", "?")
                 count = str(entry.get("count", 0))
@@ -88,7 +92,7 @@ class SecurityPanel(BasePanel):
                 cc = self._get_cc(ip)
                 st.append(f"   {ip:<18}{count:>3} {host:<14}{cc}\n", "green")
 
-        st.append("  SSH Failed (24h):\n", "green")
+        st.append("  SSH Failed (24h):\n", "table_heading")
         if failed:
             for entry in failed:
                 ip = entry.get("ip", "?")
@@ -123,9 +127,15 @@ class SecurityPanel(BasePanel):
         # Root login
         root_enabled = data.get("root_login_enabled", True)
         if root_enabled:
-            st.append("  RootLogin: Enabled\n", "yellow")
+            st.append("  RootLogin: Enabled", "yellow")
         else:
-            st.append("  RootLogin: Disabled\n", "green")
+            st.append("  RootLogin: Disabled", "green")
+
+        # NMAP indicator
+        if self.nmap_scanning:
+            st.append("  [NMAP]\n", "yellow")
+        else:
+            st.append("  [NMAP]\n", "dim")
 
         return st
 
@@ -136,8 +146,21 @@ class SecurityPanel(BasePanel):
         for i, line in enumerate(lines[:height]):
             if not line:
                 continue
+            # Handle lines with [NMAP] indicator — split and color separately
+            if "[NMAP]" in line:
+                nmap_pos = line.index("[NMAP]")
+                prefix = line[:nmap_pos]
+                # Draw prefix (RootLogin part)
+                prefix_attr = self.c_warn if "Enabled" in prefix else self.c_normal
+                self._safe_addstr(win, y + i, x, prefix, prefix_attr, width)
+                # Draw [NMAP] with correct color
+                nmap_attr = self.c_warn if self.nmap_scanning else self.c_dim
+                self._safe_addstr(win, y + i, x + len(prefix), "[NMAP]", nmap_attr, width - len(prefix))
+                continue
             attr = self.c_normal
-            if "failed attempts" in line:
+            if "SSH Logins" in line or "SSH Failed" in line:
+                attr = self.c_table_heading
+            elif "failed attempts" in line:
                 intrusions = self.security_data.get("ssh_intrusions", 0)
                 attr = self.c_error if intrusions >= 10 else self.c_warn
             elif "Inactive" in line:
@@ -147,7 +170,7 @@ class SecurityPanel(BasePanel):
                     attr = self.c_warn
             elif "Enabled" in line:
                 attr = self.c_warn
-            elif "SSH Failed" in line or "ports:" in line or "os:" in line:
+            elif "ports:" in line or "os:" in line:
                 attr = self.c_error
             elif self.ssh_summary.get("failed") and \
                     any(e.get("ip", "") in line for e in self.ssh_summary["failed"]):

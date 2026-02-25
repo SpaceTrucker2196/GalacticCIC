@@ -1,5 +1,6 @@
 """Agent Fleet Status panel for curses TUI."""
 
+from galactic_cic import theme
 from galactic_cic.panels.base import BasePanel, StyledText, Table
 
 
@@ -67,10 +68,15 @@ class AgentFleetPanel(BasePanel):
             st.append("  No agents found\n", "green")
             return st
 
-        # Use table for agent listing
+        # Use table for agent listing — preserve per-row styling
         table = self._build_table(agents_data)
         table_st = table.render()
-        st.append(table_st.plain, "green")
+        offset = len(st._text)
+        st._text += table_st._text
+        for span in table_st._spans:
+            st._spans.append(StyledText.Span(
+                span.start + offset, span.end + offset, span.style
+            ))
 
         st.append("\n")
 
