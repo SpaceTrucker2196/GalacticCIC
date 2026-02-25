@@ -298,3 +298,93 @@ class ServerHealthPanel(BasePanel):
                 line = f"    {ip:<18}{count:>3} {host}"
                 self._safe_addstr(win, y + row, x, line, self.c_normal, width)
                 row += 1
+
+    def _draw_detail(self, win, y, x, height, width):
+        """Full-screen detail view for Server Health."""
+        row = 0
+        h = self.health
+
+        self._safe_addstr(win, y + row, x, "  SERVER HEALTH — Detail View", self.c_highlight, width)
+        row += 2
+
+        # Resource gauges with wider sparklines
+        for label, history, pct, extra in [
+            ("CPU", self.cpu_history, h.get("cpu_percent", 0), ""),
+            ("MEM", self.mem_history, h.get("mem_percent", 0),
+             f"  {h.get('mem_used', '?')}/{h.get('mem_total', '?')}"),
+            ("DISK", self.disk_history, h.get("disk_percent", 0),
+             f"  {h.get('disk_used', '?')}/{h.get('disk_total', '?')}"),
+            ("NET", self.network_history, self.network_current, ""),
+        ]:
+            if row >= height:
+                break
+            sparkline = self._make_sparkline(history, width=min(40, width // 2))
+            attr = self.c_normal
+            if pct >= 90:
+                attr = self.c_error
+            elif pct >= 70:
+                attr = self.c_warn
+            line = f"  {label + ':':<6} {sparkline}  {pct:3.0f}%{extra}"
+            self._safe_addstr(win, y + row, x, line, attr, width)
+            row += 1
+
+        row += 1
+
+        # System info
+        if row < height:
+            self._safe_addstr(win, y + row, x, "  System Info", self.c_table_heading, width)
+            row += 1
+
+        load = h.get("load_avg", [0, 0, 0])
+        info = [
+            ("Uptime", h.get("uptime", "?")),
+            ("Load avg", f"{load[0]:.2f}  {load[1]:.2f}  {load[2]:.2f}"),
+            ("Hostname", h.get("hostname", "?")),
+        ]
+        for label, val in info:
+            if row >= height:
+                break
+            self._safe_addstr(win, y + row, x, f"    {label + ':':<14} {val}", self.c_normal, width)
+            row += 1
+
+        row += 1
+
+        # Processes — wider table
+        if self.processes and row + 2 < height:
+            self._safe_addstr(win, y + row, x, "  Top Processes", self.c_table_heading, width)
+            row += 1
+            from galactic_cic.panels.base import Table
+            table = Table(
+                columns=["PID", "USER", "CPU%", "MEM%", "COMMAND"],
+                widths=[8, 10, 7, 7, min(40, width - 40)],
+                borders=False, padding=1, header=True,
+            )
+            for proc in self.processes[:10]:
+                cpu_val = float(proc.get("cpu", "0"))
+                style = "green"
+                if cpu_val >= 50:
+                    style = "red"
+                elif cpu_val >= 25:
+                    style = "yellow"
+                table.add_row([
+                    proc.get("pid", "?"), proc.get("user", "?"),
+                    proc.get("cpu", "0"), proc.get("mem", "0"),
+                    proc.get("command", "?"),
+                ], style=style)
+            table.draw(win, y + row, x + 2, width - 4,
+                      self.c_normal, self.c_error, self.c_warn)
+            row += len(self.processes[:10]) + 2
+
+        # Top IPs
+        if self.top_ips and row + 2 < height:
+            self._safe_addstr(win, y + row, x, "  Top Network IPs", self.c_table_heading, width)
+            row += 1
+            for entry in self.top_ips:
+                if row >= height:
+                    break
+                ip = entry.get("ip", "?")
+                count = entry.get("count", 0)
+                host = entry.get("hostname", "unknown")
+                self._safe_addstr(win, y + row, x,
+                    f"    {ip:<18} {count:>4} connections  {host}", self.c_normal, width)
+                row += 1

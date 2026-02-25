@@ -178,3 +178,76 @@ class SitrepPanel(BasePanel):
                 self._safe_addstr(win, y + row, x, "  ● ALL CLEAR",
                                   self.c_normal, width)
                 row += 1
+
+    def _draw_detail(self, win, y, x, height, width):
+        """Full-screen detail view for SITREP."""
+        row = 0
+
+        self._safe_addstr(win, y + row, x, "  SITREP — Detail View", self.c_highlight, width)
+        row += 2
+
+        # Channels
+        self._safe_addstr(win, y + row, x, "  Channels", self.c_table_heading, width)
+        row += 1
+        if self.channels:
+            for ch in self.channels:
+                if row >= height:
+                    break
+                name = ch.get("name", "?")
+                state = ch.get("state", "?").upper()
+                enabled = ch.get("enabled", "?")
+                detail = ch.get("detail", "")
+                if state == "OK":
+                    icon, attr = "●", self.c_normal
+                elif state == "WARN":
+                    icon, attr = "▲", self.c_warn
+                else:
+                    icon, attr = "✖", self.c_error
+                line = f"    {icon} {name:<14} Enabled: {enabled:<4} State: {state:<6} {detail}"
+                self._safe_addstr(win, y + row, x, line[:width], attr, width)
+                row += 1
+        else:
+            self._safe_addstr(win, y + row, x, "    No channels configured", self.c_dim, width)
+            row += 1
+        row += 1
+
+        # Update
+        self._safe_addstr(win, y + row, x, "  Update Status", self.c_table_heading, width)
+        row += 1
+        if self.update_info.get("available"):
+            self._safe_addstr(win, y + row, x, "    ▲ UPDATE AVAILABLE", self.c_warn, width)
+            row += 1
+            cur = self.update_info.get("current", "?")
+            lat = self.update_info.get("latest", "?")
+            self._safe_addstr(win, y + row, x, f"    Current version:  {cur}", self.c_normal, width)
+            row += 1
+            self._safe_addstr(win, y + row, x, f"    Latest version:   {lat}", self.c_warn, width)
+            row += 1
+            self._safe_addstr(win, y + row, x, "    Command:          openclaw update", self.c_dim, width)
+            row += 1
+        else:
+            self._safe_addstr(win, y + row, x, "    ● Up to date", self.c_normal, width)
+            row += 1
+        row += 1
+
+        # Action Items
+        self._safe_addstr(win, y + row, x, "  Action Items", self.c_table_heading, width)
+        row += 1
+        if self.action_items:
+            for i, item in enumerate(self.action_items, 1):
+                if row >= height:
+                    break
+                sev = item.get("severity", "info")
+                text = item.get("text", "?")
+                if sev in ("error", "critical"):
+                    icon, attr = "✖", self.c_error
+                elif sev == "warn":
+                    icon, attr = "▲", self.c_warn
+                else:
+                    icon, attr = "●", self.c_normal
+                self._safe_addstr(win, y + row, x,
+                    f"    {i}. {icon} [{sev.upper():<8}] {text}", attr, width)
+                row += 1
+        else:
+            self._safe_addstr(win, y + row, x, "    ● ALL CLEAR — No action items", self.c_normal, width)
+            row += 1

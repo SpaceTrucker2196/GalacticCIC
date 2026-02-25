@@ -26,6 +26,9 @@ PAIR_IDS = {
     TABLE_HEADING: 8,
 }
 
+# Custom color ID for dark green background (curses supports 256 colors)
+DARK_GREEN_ID = 16
+
 # Map string names to curses color constants (resolved after curses init)
 _COLOR_NAMES = {
     "green": "COLOR_GREEN",
@@ -57,14 +60,14 @@ class Theme:
 # Theme definitions — use string names so they can be defined before curses init
 THEMES = {
     "phosphor": Theme("phosphor", {
-        NORMAL:        ("green", "black"),
-        HIGHLIGHT:     ("green", "black"),
-        WARNING:       ("yellow", "black"),
-        ERROR:         ("red", "black"),
-        DIM:           ("green", "black"),
-        HEADER:        ("green", "black"),
-        FOOTER:        ("green", "black"),
-        TABLE_HEADING: ("white", "black"),
+        NORMAL:        ("green", "darkgreen"),
+        HIGHLIGHT:     ("green", "darkgreen"),
+        WARNING:       ("yellow", "darkgreen"),
+        ERROR:         ("red", "darkgreen"),
+        DIM:           ("green", "darkgreen"),
+        HEADER:        ("green", "darkgreen"),
+        FOOTER:        ("green", "darkgreen"),
+        TABLE_HEADING: ("white", "darkgreen"),
     }, {
         HIGHLIGHT: ["A_BOLD"],
         HEADER: ["A_BOLD"],
@@ -115,6 +118,7 @@ def _resolve_color(name):
 
     'default' or 'black' maps to -1 (terminal default background)
     when use_default_colors() has been called.
+    'darkgreen' maps to our custom dark green color (ID 16).
     """
     mapping = {
         "green": curses.COLOR_GREEN,
@@ -124,6 +128,7 @@ def _resolve_color(name):
         "cyan": curses.COLOR_CYAN,
         "black": -1,       # use terminal default background
         "default": -1,
+        "darkgreen": DARK_GREEN_ID,
         "magenta": curses.COLOR_MAGENTA,
         "blue": curses.COLOR_BLUE,
     }
@@ -181,6 +186,14 @@ def init_colors(theme_name=None):
 
     curses.start_color()
     curses.use_default_colors()
+
+    # Define dark green background color if terminal supports custom colors
+    try:
+        if curses.can_change_color():
+            # RGB values are 0-1000 in curses. Dark green: ~#0a1a0a
+            curses.init_color(DARK_GREEN_ID, 40, 100, 40)
+    except curses.error:
+        pass  # Not in a real terminal (e.g. tests)
 
     theme = get_theme()
     for role, pair_id in PAIR_IDS.items():

@@ -43,6 +43,14 @@ def _fake_color_pair(pair_id):
     return pair_id << 8
 
 
+def _fake_can_change_color():
+    return True
+
+
+def _fake_init_color(color_id, r, g, b):
+    pass
+
+
 def _init_theme_for_test():
     """Initialize theme with mocked curses calls."""
     _fake_pairs.clear()
@@ -51,7 +59,9 @@ def _init_theme_for_test():
     with patch("curses.start_color", _fake_start_color), \
          patch("curses.use_default_colors", _fake_use_default_colors), \
          patch("curses.init_pair", _fake_init_pair), \
-         patch("curses.color_pair", _fake_color_pair):
+         patch("curses.color_pair", _fake_color_pair), \
+         patch("curses.can_change_color", _fake_can_change_color), \
+         patch("curses.init_color", _fake_init_color):
         theme.init_colors("phosphor")
 
 
@@ -115,7 +125,7 @@ class TestThemeInit(unittest.TestCase):
     def test_phosphor_normal_is_green(self):
         _init_theme_for_test()
         pair = _fake_pairs[theme.PAIR_IDS[theme.NORMAL]]
-        self.assertEqual(pair, (_real_curses.COLOR_GREEN, -1))
+        self.assertEqual(pair, (_real_curses.COLOR_GREEN, theme.DARK_GREEN_ID))
 
     def test_amber_normal_is_yellow(self):
         _fake_pairs.clear()
@@ -140,7 +150,7 @@ class TestThemeInit(unittest.TestCase):
     def test_table_heading_pair_is_white(self):
         _init_theme_for_test()
         pair = _fake_pairs[theme.PAIR_IDS[theme.TABLE_HEADING]]
-        self.assertEqual(pair, (_real_curses.COLOR_WHITE, -1))
+        self.assertEqual(pair, (_real_curses.COLOR_WHITE, theme.DARK_GREEN_ID))
 
 
 class TestThemeSwitching(unittest.TestCase):

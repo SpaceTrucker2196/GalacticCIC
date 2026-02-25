@@ -125,3 +125,53 @@ class AgentFleetPanel(BasePanel):
             if summary_y + 1 < y + height:
                 gw_attr = self.c_normal if gateway == "running" else self.c_error
                 self._safe_addstr(win, summary_y + 1, x, f" Gateway: {gateway}", gw_attr, width)
+
+    def _draw_detail(self, win, y, x, height, width):
+        """Full-screen detail view for Agent Fleet."""
+        row = 0
+        agents = self.agents_data.get("agents", [])
+
+        self._safe_addstr(win, y + row, x, "  AGENT FLEET — Detail View", self.c_highlight, width)
+        row += 2
+
+        for agent in agents:
+            if row + 8 >= height:
+                break
+            name = agent.get("name", "?")
+            if agent.get("is_default"):
+                name += " (default)"
+
+            self._safe_addstr(win, y + row, x, f"  ► {name}", self.c_highlight, width)
+            row += 1
+
+            details = [
+                ("Model", agent.get("model", "?")),
+                ("Identity", agent.get("identity", "?")),
+                ("Workspace", agent.get("workspace", "?")),
+                ("Storage", agent.get("storage", "?")),
+                ("Tokens", agent.get("tokens", "?")),
+                ("Tokens/hr", agent.get("tokens_per_hour", "--")),
+                ("Sessions", str(agent.get("sessions", 0))),
+                ("Routing", agent.get("routing", "?")),
+            ]
+            for label, val in details:
+                if row >= height:
+                    break
+                self._safe_addstr(win, y + row, x, f"    {label + ':':<14} {val}", self.c_normal, width)
+                row += 1
+            row += 1
+
+        # Gateway & session summary
+        if row + 3 < height:
+            row += 1
+            self._safe_addstr(win, y + row, x, "  Gateway & Sessions", self.c_table_heading, width)
+            row += 1
+            total = self.status_data.get("sessions", 0)
+            gw = self.status_data.get("gateway_status", "?")
+            version = self.status_data.get("version", "?")
+            gw_attr = self.c_normal if gw == "running" else self.c_error
+            self._safe_addstr(win, y + row, x, f"    Gateway:    {gw}", gw_attr, width)
+            row += 1
+            self._safe_addstr(win, y + row, x, f"    Sessions:   {total}", self.c_normal, width)
+            row += 1
+            self._safe_addstr(win, y + row, x, f"    Version:    {version}", self.c_normal, width)

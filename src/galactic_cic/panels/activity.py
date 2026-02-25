@@ -164,3 +164,81 @@ class ActivityLogPanel(BasePanel):
                 line = f"  {ip:<16}{host:<18}{cc:>2} {ports}"
                 self._safe_addstr(win, y + irow, ix, line[:ip_col_w], self.c_normal, ip_col_w)
                 irow += 1
+
+    def _draw_detail(self, win, y, x, height, width):
+        """Full-screen detail view for Activity Log."""
+        row = 0
+
+        self._safe_addstr(win, y + row, x, "  ACTIVITY LOG — Detail View", self.c_highlight, width)
+        row += 2
+
+        # Errors section
+        self._safe_addstr(win, y + row, x, "  ERRORS", self.c_table_heading, width)
+        row += 1
+        if self.errors:
+            for err in self.errors[:min(10, height // 4)]:
+                if row >= height:
+                    break
+                time_str = err.get("time", "??:??")
+                src = err.get("type", "sys")
+                msg = err.get("message", "")
+                line = f"    {time_str:>8}  [{src}]  {msg}"
+                self._safe_addstr(win, y + row, x, line[:width], self.c_error, width)
+                row += 1
+        else:
+            self._safe_addstr(win, y + row, x, "    (none)", self.c_normal, width)
+            row += 1
+
+        row += 1
+        sep = "  " + "─" * (width - 4)
+        if row < height:
+            self._safe_addstr(win, y + row, x, sep, self.c_normal, width)
+            row += 1
+
+        # Recent events — use full height
+        if row < height:
+            self._safe_addstr(win, y + row, x, "  RECENT", self.c_table_heading, width)
+            row += 1
+
+        filtered = self.events
+        if self._filter:
+            filtered = [
+                e for e in self.events
+                if self._filter.lower() in e.get("message", "").lower()
+                or self._filter.lower() in e.get("type", "").lower()
+            ]
+
+        for event in filtered:
+            if row >= height:
+                break
+            time_str = event.get("time", "??:??")
+            src = event.get("type", "sys")
+            msg = event.get("message", "")
+            level = event.get("level", "info")
+            line = f"    {time_str:>8}  [{src:<6}]  {msg}"
+            attr = self.c_normal
+            if level == "error":
+                attr = self.c_error
+            elif level in ("warn", "warning"):
+                attr = self.c_warn
+            self._safe_addstr(win, y + row, x, line[:width], attr, width)
+            row += 1
+
+        # External IP summary
+        if self.ext_ip_summary and row + 3 < height:
+            row += 1
+            self._safe_addstr(win, y + row, x, "  EXTERNAL IPs", self.c_table_heading, width)
+            row += 1
+            hdr = f"    {'IP':<18}{'Hostname':<22}{'Country':>4}  {'Ports'}"
+            self._safe_addstr(win, y + row, x, hdr[:width], self.c_dim, width)
+            row += 1
+            for entry in self.ext_ip_summary:
+                if row >= height:
+                    break
+                ip = entry.get("ip", "?")
+                host = entry.get("hostname", "?")
+                cc = entry.get("country", "?")
+                ports = entry.get("ports", "")
+                line = f"    {ip:<18}{host:<22}{cc:>4}  {ports}"
+                self._safe_addstr(win, y + row, x, line[:width], self.c_normal, width)
+                row += 1

@@ -212,3 +212,127 @@ class SecurityPanel(BasePanel):
             elif any(ip in line for ip in failed_ips):
                 attr = self.c_error
             self._safe_addstr(win, y + i, x, line, attr, width)
+
+    def _draw_detail(self, win, y, x, height, width):
+        """Full-screen detail view for Security."""
+        row = 0
+        data = self.security_data
+
+        self._safe_addstr(win, y + row, x, "  SECURITY STATUS — Detail View", self.c_highlight, width)
+        row += 2
+
+        # SSH Summary
+        self._safe_addstr(win, y + row, x, "  SSH Access", self.c_table_heading, width)
+        row += 1
+        intrusions = data.get("ssh_intrusions", 0)
+        attr = self.c_error if intrusions >= 10 else (self.c_warn if intrusions > 0 else self.c_normal)
+        self._safe_addstr(win, y + row, x, f"    Failed attempts (24h): {intrusions}", attr, width)
+        row += 2
+
+        # Accepted logins
+        accepted = self.ssh_summary.get("accepted", [])
+        if accepted:
+            self._safe_addstr(win, y + row, x, "  Accepted Logins (24h)", self.c_table_heading, width)
+            row += 1
+            for entry in accepted:
+                if row >= height:
+                    break
+                ip = entry.get("ip", "?")
+                count = entry.get("count", 0)
+                host = entry.get("hostname", "?")
+                cc = self._get_cc(ip)
+                self._safe_addstr(win, y + row, x,
+                    f"    {ip:<18} {count:>4}x  {host:<20} [{cc}]", self.c_normal, width)
+                row += 1
+            row += 1
+
+        # Failed logins
+        failed = self.ssh_summary.get("failed", [])
+        if failed:
+            self._safe_addstr(win, y + row, x, "  Failed Logins (24h)", self.c_table_heading, width)
+            row += 1
+            for entry in failed:
+                if row + 3 >= height:
+                    break
+                ip = entry.get("ip", "?")
+                count = entry.get("count", 0)
+                host = entry.get("hostname", "?")
+                cc = self._get_cc(ip)
+                self._safe_addstr(win, y + row, x,
+                    f"    {ip:<18} {count:>4}x  {host:<20} [{cc}]", self.c_error, width)
+                row += 1
+                # Show nmap scan if available
+                scan = self.attacker_scans.get(ip, {})
+                geo = self.geo_data.get(ip, {})
+                if scan.get("open_ports") or scan.get("os_guess") or geo.get("city"):
+                    parts = []
+                    if geo.get("city"):
+                        parts.append(f"loc: {geo['city']}")
+                    if geo.get("isp"):
+                        parts.append(f"isp: {geo['isp']}")
+                    if scan.get("open_ports"):
+                        parts.append(f"ports: {scan['open_ports']}")
+                    if scan.get("os_guess"):
+                        parts.append(f"os: {scan['os_guess']}")
+                    self._safe_addstr(win, y + row, x,
+                        f"      {' · '.join(parts)}", self.c_warn, width)
+                    row += 1
+            row += 1
+
+        # Firewall & Services
+        if row + 4 < height:
+            self._safe_addstr(win, y + row, x, "  Firewall & Services", self.c_table_heading, width)
+            row += 1
+            ufw = "Active" if data.get("ufw_active") else "Inactive"
+            f2b = "Active" if data.get("fail2ban_active") else "Inactive"
+            root = "Enabled" if data.get("root_login_enabled") else "Disabled"
+            self._safe_addstr(win, y + row, x, f"    UFW:            {ufw}",
+                             self.c_normal if data.get("ufw_active") else self.c_warn, width)
+            row += 1
+            self._safe_addstr(win, y + row, x, f"    Fail2ban:       {f2b}",
+                             self.c_normal if data.get("fail2ban_active") else self.c_error, width)
+            row += 1
+            self._safe_addstr(win, y + row, x, f"    Root login:     {root}",
+                             self.c_normal if not data.get("root_login_enabled") else self.c_warn, width)
+            row += 2
+
+        # Open Ports
+        ports = data.get("ports_detail", [])
+        if ports and row + 2 < height:
+            self._safe_addstr(win, y + row, x, f"  Open Ports ({len(ports)})", self.c_table_heading, width)
+            row += 1
+            for p in ports:
+                if row >= height:
+                    break
+                port = p.get("port", "?")
+                svc = p.get("service", "?")
+                self._safe_addstr(win, y + row, x, f"    {port:<8} {svc}", self.c_normal, width)
+                row += 1
+            row += 1
+
+        # Attacker Scans
+        if self.attacker_scans and row + 2 < height:
+            self._safe_addstr(win, y + row, x,
+                f"  Attacker Scans ({len(self.attacker_scans)})", self.c_table_heading, width)
+            row += 1
+            if self.last_nmap_time:
+                self._safe_addstr(win, y + row, x,
+                    f"    Last scan: {self.last_nmap_time}", self.c_dim, width)
+                row += 1
+            for ip, scan in self.attacker_scans.items():
+                if row >= height:
+                    break
+                ports_s = scan.get("open_ports", "none")
+                os_s = scan.get("os_guess", "")
+                cc = self._get_cc(ip)
+                geo = self.geo_data.get(ip, {})
+                city = geo.get("city", "")
+                line = f"    {ip:<18} [{cc}]"
+                if city:
+                    line += f" {city}"
+                if ports_s and ports_s != "none":
+                    line += f"  ports: {ports_s}"
+                if os_s:
+                    line += f"  os: {os_s}"
+                self._safe_addstr(win, y + row, x, line, self.c_error, width)
+                row += 1

@@ -107,3 +107,62 @@ class CronJobsPanel(BasePanel):
         if total_errors > 0 and summary_y < y + height:
             msg = f"  {len(error_jobs)} job(s) with {total_errors} error(s)"
             self._safe_addstr(win, summary_y, x, msg, self.c_error, width)
+
+    def _draw_detail(self, win, y, x, height, width):
+        """Full-screen detail view for Cron Jobs."""
+        row = 0
+        jobs = self.cron_data.get("jobs", [])
+
+        self._safe_addstr(win, y + row, x, "  CRON JOBS — Detail View", self.c_highlight, width)
+        row += 2
+
+        if not jobs:
+            self._safe_addstr(win, y + row, x, "  No cron jobs configured", self.c_normal, width)
+            return
+
+        # Wider table with all columns
+        from galactic_cic.panels.base import Table
+        table = Table(
+            columns=["St", "Job Name", "Schedule", "Last Run", "Next Run", "Agent", "Errs"],
+            widths=[3, min(25, width // 4), min(25, width // 4), 12, 12, 12, 5],
+            borders=False, padding=1, header=True,
+        )
+        for job in jobs:
+            status = job.get("status", "idle")
+            icon = self.STATUS_ICONS.get(status, "?")
+            name = job.get("name", "?")
+            schedule = job.get("schedule", "?")
+            last = job.get("last_run", "--")
+            next_r = job.get("next_run", "--")
+            agent = job.get("agent", "?")
+            errs = str(job.get("error_count", 0))
+            style = "red" if status == "error" else "green"
+            table.add_row([icon, name, schedule, last, next_r, agent, errs], style=style)
+
+        rows_drawn = table.draw(win, y + row, x + 2, width - 4,
+                               self.c_normal, self.c_error, self.c_warn)
+        row += rows_drawn + 1
+
+        # Summary
+        error_jobs = [j for j in jobs if j.get("status") == "error"]
+        ok_jobs = [j for j in jobs if j.get("status") == "ok"]
+        idle_jobs = [j for j in jobs if j.get("status") == "idle"]
+        if row < height:
+            summary = f"  Total: {len(jobs)}  ✓ OK: {len(ok_jobs)}  ✖ Error: {len(error_jobs)}  ○ Idle: {len(idle_jobs)}"
+            self._safe_addstr(win, y + row, x, summary,
+                             self.c_error if error_jobs else self.c_normal, width)
+            row += 2
+
+        # Error details
+        if error_jobs and row + 2 < height:
+            self._safe_addstr(win, y + row, x, "  Error Details", self.c_table_heading, width)
+            row += 1
+            for job in error_jobs:
+                if row + 3 >= height:
+                    break
+                name = job.get("name", "?")
+                errs = job.get("error_count", 0)
+                last = job.get("last_run", "?")
+                self._safe_addstr(win, y + row, x,
+                    f"    ✖ {name}: {errs} consecutive errors, last: {last}", self.c_error, width)
+                row += 1

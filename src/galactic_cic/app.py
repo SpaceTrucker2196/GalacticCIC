@@ -107,6 +107,9 @@ class CICDashboard:
         # NMAP scanning flag (True while scans are active)
         self.nmap_scanning = False
 
+        # Detail view state: None = dashboard, int = panel index, "config" = config page
+        self._detail_view = None
+
         # Rolling in-memory sparkline histories (one entry per FAST refresh)
         self._HISTORY_MAX = 60
         self._cpu_history, self._mem_history, self._disk_history, self._net_history = \
@@ -197,13 +200,26 @@ class CICDashboard:
         h, w = self.stdscr.getmaxyx()
         footer_y = h - 1
         footer_attr = theme.get_attr(theme.FOOTER)
+        highlight_attr = theme.get_attr(theme.HIGHLIGHT)
+
         try:
             self.stdscr.addnstr(footer_y, 0, " " * w, w, footer_attr)
         except curses.error:
             pass
-        keys = "q:Quit  r:Refresh  1-6:Panel  Tab:Cycle  t:Theme  ?:Help"
+
+        if self._detail_view is not None:
+            buttons = "[ Esc: Back ]  [ q: Quit ]"
+        else:
+            buttons = "[ q: Quit ]  [ r: Refresh ]  [ Tab: Cycle ]  [ Enter: Detail ]  [ c: Config ]  [ t: Theme ]  [ ?: Help ]"
+
         try:
-            self.stdscr.addnstr(footer_y, 2, keys, w - 4, footer_attr)
+            col = 1
+            for btn in buttons.split("  "):
+                btn = btn.strip()
+                if col + len(btn) >= w:
+                    break
+                self.stdscr.addnstr(footer_y, col, btn, w - col, highlight_attr)
+                col += len(btn) + 2
         except curses.error:
             pass
 
@@ -212,12 +228,16 @@ class CICDashboard:
         help_lines = [
             "GalacticCIC \u2014 Keyboard Controls",
             "",
-            "  q        Quit",
-            "  r        Refresh all panels",
-            "  1-6      Focus panel",
-            "  Tab      Cycle panel focus",
-            "  ?        Toggle this help",
-            "  Esc      Close help",
+            "  q          Quit",
+            "  r          Refresh all panels",
+            "  1-6        Focus panel",
+            "  Tab        Cycle panels (reading order)",
+            "  Shift+Tab  Cycle panels (reverse)",
+            "  Enter      Open detail view",
+            "  Esc        Back to dashboard",
+            "  c          Configuration page",
+            "  t          Cycle theme",
+            "  ?          Toggle this help",
             "",
             f"  Refresh every {self.REFRESH_INTERVAL}s",
             "",
@@ -576,6 +596,179 @@ class CICDashboard:
                 action_items=action_items,
             )
 
+    def _draw_detail_view(self):
+        """Draw a full-screen detail view for a panel or config."""
+        h, w = self.stdscr.getmaxyx()
+        content_y = 1
+        content_h = h - 2
+
+        if self._detail_view == "config":
+            self._draw_config_page(content_y, 0, content_h, w)
+            return
+
+        if isinstance(self._detail_view, int) and 0 <= self._detail_view < len(self.panels):
+            panel = self.panels[self._detail_view]
+            panel.focused = True
+            # Draw full-screen panel with detail content
+            if hasattr(panel, '_draw_detail'):
+                panel.draw(self.stdscr, content_y, 0, content_h, w,
+                          theme.get_attr(theme.NORMAL),
+                          theme.get_attr(theme.HIGHLIGHT),
+                          theme.get_attr(theme.WARNING),
+                          theme.get_attr(theme.ERROR),
+                          theme.get_attr(theme.DIM))
+                # Override content area with detail view
+                panel._draw_detail(self.stdscr, content_y + 1, 1,
+                                   content_h - 2, w - 2)
+            else:
+                # Fallback: just draw the panel full-screen
+                panel.draw(self.stdscr, content_y, 0, content_h, w,
+                          theme.get_attr(theme.NORMAL),
+                          theme.get_attr(theme.HIGHLIGHT),
+                          theme.get_attr(theme.WARNING),
+                          theme.get_attr(theme.ERROR),
+                          theme.get_attr(theme.DIM))
+
+    def _draw_config_page(self, y, x, height, width):
+        """Draw the configuration page."""
+        import json
+        c_normal = theme.get_attr(theme.NORMAL)
+        c_highlight = theme.get_attr(theme.HIGHLIGHT)
+        c_heading = theme.get_attr(theme.TABLE_HEADING)
+        c_warn = theme.get_attr(theme.WARNING)
+        c_dim = theme.get_attr(theme.DIM)
+
+        # Draw border
+        title = " Configuration "
+        top = "┌─" + title + "─" * max(0, width - len(title) - 4) + "─┐"
+        self._safe_addstr_main(y, x, top, c_highlight, width)
+        for row in range(1, height - 1):
+            self._safe_addstr_main(y + row, x, "│", c_highlight)
+            self._safe_addstr_main(y + row, x + width - 1, "│", c_highlight)
+        bot = "└" + "─" * (width - 2) + "┘"
+        self._safe_addstr_main(y + height - 1, x, bot, c_highlight, width)
+
+        row = 1
+
+        # GalacticCIC Info
+        self._safe_addstr_main(y + row, x + 2, "GalacticCIC Configuration", c_highlight, width - 4)
+        row += 2
+
+        # Version
+        self._safe_addstr_main(y + row, x + 2, "Version:        3.1.0", c_normal, width - 4)
+        row += 1
+
+        # Theme
+        current_theme = theme.get_current_theme_name()
+        self._safe_addstr_main(y + row, x + 2, f"Theme:          {current_theme} (press 't' to cycle)", c_normal, width - 4)
+        row += 1
+
+        # DB path
+        import os
+        db_path = os.path.expanduser("~/.galactic_cic/metrics.db")
+        db_exists = os.path.exists(db_path)
+        db_size = f"{os.path.getsize(db_path) / 1024 / 1024:.1f}MB" if db_exists else "missing"
+        self._safe_addstr_main(y + row, x + 2, f"Database:       {db_path} ({db_size})", c_normal, width - 4)
+        row += 1
+
+        # Config file
+        config_path = os.path.expanduser("~/.galactic_cic/config.json")
+        config_data = {}
+        if os.path.exists(config_path):
+            try:
+                with open(config_path) as f:
+                    config_data = json.load(f)
+            except Exception:
+                pass
+        self._safe_addstr_main(y + row, x + 2, f"Config file:    {config_path}", c_normal, width - 4)
+        row += 2
+
+        # Collector Daemon
+        self._safe_addstr_main(y + row, x + 2, "Collector Daemon", c_heading, width - 4)
+        row += 1
+
+        import subprocess
+        result = subprocess.run(
+            ["systemctl", "--user", "is-active", "galactic-cic-collector.service"],
+            capture_output=True, text=True
+        )
+        daemon_active = result.stdout.strip() == "active"
+
+        if daemon_active:
+            self._safe_addstr_main(y + row, x + 2, "  Status:       ● RUNNING", c_normal, width - 4)
+        else:
+            self._safe_addstr_main(y + row, x + 2, "  Status:       ✖ STOPPED", c_warn, width - 4)
+        row += 1
+
+        self._safe_addstr_main(y + row, x + 2, "  Fast tier:    30s (server health, processes)", c_dim, width - 4)
+        row += 1
+        self._safe_addstr_main(y + row, x + 2, "  Medium tier:  120s (cron, activity, network)", c_dim, width - 4)
+        row += 1
+        self._safe_addstr_main(y + row, x + 2, "  Slow tier:    300s (agents, security, channels)", c_dim, width - 4)
+        row += 1
+        self._safe_addstr_main(y + row, x + 2, "  Glacial tier: 900s (nmap, geolocation, DNS)", c_dim, width - 4)
+        row += 1
+        self._safe_addstr_main(y + row, x + 2, "  Retention:    30 days", c_dim, width - 4)
+        row += 2
+
+        # Refresh Settings
+        self._safe_addstr_main(y + row, x + 2, "Dashboard", c_heading, width - 4)
+        row += 1
+        self._safe_addstr_main(y + row, x + 2, f"  Refresh:      {self.REFRESH_INTERVAL}s", c_dim, width - 4)
+        row += 1
+        self._safe_addstr_main(y + row, x + 2, f"  Sparkline:    {self._HISTORY_MAX} points", c_dim, width - 4)
+        row += 1
+        self._safe_addstr_main(y + row, x + 2, f"  Panels:       {len(self.panels)}", c_dim, width - 4)
+        row += 2
+
+        # Keybindings
+        self._safe_addstr_main(y + row, x + 2, "Keybindings", c_heading, width - 4)
+        row += 1
+        bindings = [
+            ("q", "Quit"),
+            ("r", "Force refresh all"),
+            ("1-6", "Focus panel"),
+            ("Tab", "Cycle panels (reading order)"),
+            ("Shift+Tab", "Cycle panels (reverse)"),
+            ("Enter", "Open detail view"),
+            ("Esc", "Back to dashboard"),
+            ("c", "Configuration (this page)"),
+            ("t", "Cycle theme"),
+            ("?", "Help overlay"),
+        ]
+        for key, desc in bindings:
+            if row >= height - 1:
+                break
+            self._safe_addstr_main(y + row, x + 4, f"{key:<14} {desc}", c_dim, width - 6)
+            row += 1
+
+        # OpenClaw Config
+        row += 1
+        if row < height - 1:
+            self._safe_addstr_main(y + row, x + 2, "OpenClaw", c_heading, width - 4)
+            row += 1
+        oc_items = [
+            ("Gateway", self.panels[0].status_data.get("gateway_status", "?")),
+            ("Model", self.panels[0].status_data.get("model", "?")),
+            ("Agents", str(len(self.panels[0].agents_data.get("agents", [])))),
+            ("Sessions", str(self.panels[0].status_data.get("sessions", 0))),
+        ]
+        for label, val in oc_items:
+            if row >= height - 1:
+                break
+            self._safe_addstr_main(y + row, x + 4, f"{label + ':':<14} {val}", c_dim, width - 6)
+            row += 1
+
+    def _safe_addstr_main(self, y, x, text, attr, max_width=None):
+        """Safe addstr for main window."""
+        try:
+            if max_width:
+                self.stdscr.addnstr(y, x, text, max_width, attr)
+            else:
+                self.stdscr.addstr(y, x, text, attr)
+        except curses.error:
+            pass
+
     def _maybe_start_refresh(self):
         """Start background refresh if interval elapsed or forced."""
         now = time.monotonic()
@@ -594,7 +787,22 @@ class CICDashboard:
             )
             self._refresh_thread.start()
 
+    def _get_reading_order(self):
+        """Get panel indices in visual reading order (left-to-right, top-to-bottom)."""
+        layout = self._layout_panels()
+        if not layout:
+            return [0, 1, 2, 3, 4, 5]
+        # Sort by y position first, then x position
+        sorted_layout = sorted(layout, key=lambda t: (t[1], t[2]))
+        return [t[0] for t in sorted_layout]
+
     def _handle_key(self, key):
+        # In detail view, Esc/q/Enter/Backspace returns to dashboard
+        if self._detail_view is not None:
+            if key in (27, ord("q"), ord("\n"), curses.KEY_BACKSPACE, 127, 263):
+                self._detail_view = None
+            return True
+
         if key == ord("q"):
             return False
         elif key == ord("r"):
@@ -603,7 +811,26 @@ class CICDashboard:
         elif key in (ord("1"), ord("2"), ord("3"), ord("4"), ord("5"), ord("6")):
             self.focused_panel = key - ord("1")
         elif key == ord("\t"):
-            self.focused_panel = (self.focused_panel + 1) % 6
+            # Cycle in visual reading order
+            order = self._get_reading_order()
+            try:
+                idx = order.index(self.focused_panel)
+                self.focused_panel = order[(idx + 1) % len(order)]
+            except ValueError:
+                self.focused_panel = order[0] if order else 0
+        elif key == curses.KEY_BTAB:  # Shift+Tab — reverse cycle
+            order = self._get_reading_order()
+            try:
+                idx = order.index(self.focused_panel)
+                self.focused_panel = order[(idx - 1) % len(order)]
+            except ValueError:
+                self.focused_panel = order[-1] if order else 0
+        elif key in (ord("\n"), curses.KEY_ENTER, 10, 13):
+            # Enter opens detail view for focused panel
+            self._detail_view = self.focused_panel
+        elif key == ord("c"):
+            # Config page
+            self._detail_view = "config"
         elif key == ord("t"):
             theme.cycle_theme()
             self._init_colors()
@@ -648,8 +875,14 @@ class CICDashboard:
             # Redraw UI (always — clock updates every frame)
             stdscr.erase()
             self._draw_header()
-            with self._refresh_lock:
-                self._draw_panels()
+
+            if self._detail_view is not None:
+                with self._refresh_lock:
+                    self._draw_detail_view()
+            else:
+                with self._refresh_lock:
+                    self._draw_panels()
+
             self._draw_footer()
 
             if self.show_help_overlay:
