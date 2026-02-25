@@ -22,6 +22,7 @@ setup(
         "console_scripts": [
             "galactic_cic=galactic_cic.app:main",
             "galactic-cic=galactic_cic.app:main",
+            "galactic-cic-collector=galactic_cic.collector_daemon:main",
         ],
     },
 )
