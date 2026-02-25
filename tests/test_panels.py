@@ -1062,5 +1062,204 @@ class TestActivityIPSummary(unittest.TestCase):
         self.assertEqual(len(panel.ext_ip_summary), 1)
 
 
+
+# ---------------------------------------------------------------------------
+# SITREP panel tests
+# ---------------------------------------------------------------------------
+
+class TestSitrepPanel(unittest.TestCase):
+    """Tests for the SITREP panel (channels, updates, action items)."""
+
+    def setUp(self):
+        _init_theme_for_test()
+
+    def test_panel_has_title(self):
+        from galactic_cic.panels.sitrep import SitrepPanel
+        panel = SitrepPanel()
+        self.assertEqual(panel.TITLE, "SITREP")
+
+    def test_update_channels(self):
+        from galactic_cic.panels.sitrep import SitrepPanel
+        panel = SitrepPanel()
+        channels = [
+            {"name": "Discord", "state": "OK", "detail": "connected"},
+            {"name": "WhatsApp", "state": "WARN", "detail": "Not linked"},
+        ]
+        panel.update(channels=channels)
+        self.assertEqual(len(panel.channels), 2)
+        self.assertEqual(panel.channels[0]["name"], "Discord")
+
+    def test_update_info(self):
+        from galactic_cic.panels.sitrep import SitrepPanel
+        panel = SitrepPanel()
+        panel.update(update_info={"available": True, "current": "1.0", "latest": "2.0"})
+        self.assertTrue(panel.update_info["available"])
+        self.assertEqual(panel.update_info["latest"], "2.0")
+
+    def test_update_action_items(self):
+        from galactic_cic.panels.sitrep import SitrepPanel
+        panel = SitrepPanel()
+        items = [
+            {"severity": "error", "text": "Cron failed"},
+            {"severity": "warn", "text": "Update available"},
+        ]
+        panel.update(action_items=items)
+        self.assertEqual(len(panel.action_items), 2)
+
+    def test_build_content_with_channels(self):
+        from galactic_cic.panels.sitrep import SitrepPanel
+        panel = SitrepPanel()
+        panel.update(
+            channels=[
+                {"name": "Discord", "state": "OK", "detail": "token ok"},
+                {"name": "WhatsApp", "state": "WARN", "detail": "Not linked"},
+            ],
+            update_info={"available": True, "current": "1.0", "latest": "2.0"},
+            action_items=[
+                {"severity": "error", "text": "OpenClaw Update Check cron failed"},
+            ],
+        )
+        content = panel._build_content()
+        text = content.plain
+        self.assertIn("Discord", text)
+        self.assertIn("WhatsApp", text)
+        self.assertIn("UPDATE AVAILABLE", text)
+        self.assertIn("cron failed", text)
+
+    def test_build_content_ok_channels(self):
+        from galactic_cic.panels.sitrep import SitrepPanel
+        panel = SitrepPanel()
+        panel.update(
+            channels=[{"name": "Discord", "state": "OK", "detail": "ok"}],
+        )
+        content = panel._build_content()
+        self.assertIn("●", content.plain)
+
+    def test_build_content_warn_channel_style(self):
+        from galactic_cic.panels.sitrep import SitrepPanel
+        panel = SitrepPanel()
+        panel.update(
+            channels=[{"name": "WhatsApp", "state": "WARN", "detail": "not linked"}],
+        )
+        content = panel._build_content()
+        self.assertIn("▲", content.plain)
+        # Check yellow styling
+        styles = [s.style for s in content._spans]
+        self.assertIn("yellow", styles)
+
+    def test_build_content_no_update(self):
+        from galactic_cic.panels.sitrep import SitrepPanel
+        panel = SitrepPanel()
+        panel.update(update_info={"available": False})
+        content = panel._build_content()
+        self.assertIn("Up to date", content.plain)
+
+    def test_build_content_empty_action_items(self):
+        from galactic_cic.panels.sitrep import SitrepPanel
+        panel = SitrepPanel()
+        panel.update(action_items=[])
+        content = panel._build_content()
+        self.assertIn("ALL CLEAR", content.plain)
+
+    def test_build_content_error_action_item_style(self):
+        from galactic_cic.panels.sitrep import SitrepPanel
+        panel = SitrepPanel()
+        panel.update(action_items=[{"severity": "error", "text": "Critical failure"}])
+        content = panel._build_content()
+        self.assertIn("✖", content.plain)
+        styles = [s.style for s in content._spans]
+        self.assertIn("red", styles)
+
+    def test_build_content_no_channels(self):
+        from galactic_cic.panels.sitrep import SitrepPanel
+        panel = SitrepPanel()
+        panel.update(channels=[])
+        content = panel._build_content()
+        self.assertIn("No channels configured", content.plain)
+
+    def test_preserves_existing_data_on_partial_update(self):
+        from galactic_cic.panels.sitrep import SitrepPanel
+        panel = SitrepPanel()
+        panel.update(channels=[{"name": "Discord", "state": "OK", "detail": "ok"}])
+        panel.update(action_items=[{"severity": "warn", "text": "test"}])
+        # Channels should still be there
+        self.assertEqual(len(panel.channels), 1)
+        self.assertEqual(len(panel.action_items), 1)
+
+
+# ---------------------------------------------------------------------------
+# Mock collector tests (build_action_items)
+# ---------------------------------------------------------------------------
+
+class TestBuildActionItems(unittest.TestCase):
+    """Tests for the build_action_items aggregator."""
+
+    def test_detects_cron_errors(self):
+        from galactic_cic.data.collectors import build_action_items
+        cron = {"jobs": [{"name": "Test Job", "status": "error"}]}
+        items = build_action_items(cron, {}, [], {"available": False}, {})
+        texts = [i["text"] for i in items]
+        self.assertTrue(any("Test Job" in t for t in texts))
+
+    def test_detects_update_available(self):
+        from galactic_cic.data.collectors import build_action_items
+        items = build_action_items(
+            {"jobs": []}, {}, [],
+            {"available": True, "latest": "2.0"}, {},
+        )
+        texts = [i["text"] for i in items]
+        self.assertTrue(any("2.0" in t for t in texts))
+
+    def test_detects_channel_warn(self):
+        from galactic_cic.data.collectors import build_action_items
+        channels = [{"name": "WhatsApp", "state": "WARN", "detail": "Not linked"}]
+        items = build_action_items(
+            {"jobs": []}, {}, channels, {"available": False}, {},
+        )
+        texts = [i["text"] for i in items]
+        self.assertTrue(any("WhatsApp" in t for t in texts))
+
+    def test_detects_high_disk(self):
+        from galactic_cic.data.collectors import build_action_items
+        items = build_action_items(
+            {"jobs": []}, {}, [], {"available": False},
+            {"disk_percent": 85},
+        )
+        texts = [i["text"] for i in items]
+        self.assertTrue(any("Disk" in t for t in texts))
+
+    def test_detects_high_ssh_intrusions(self):
+        from galactic_cic.data.collectors import build_action_items
+        items = build_action_items(
+            {"jobs": []}, {"ssh_intrusions": 100}, [],
+            {"available": False}, {},
+        )
+        texts = [i["text"] for i in items]
+        self.assertTrue(any("SSH" in t for t in texts))
+
+    def test_no_items_when_all_clear(self):
+        from galactic_cic.data.collectors import build_action_items
+        items = build_action_items(
+            {"jobs": [{"name": "ok", "status": "ok"}]},
+            {"ssh_intrusions": 0, "listening_ports": 4, "expected_ports": 4},
+            [{"name": "Discord", "state": "OK"}],
+            {"available": False},
+            {"cpu_percent": 5, "mem_percent": 10, "disk_percent": 3},
+        )
+        self.assertEqual(len(items), 0)
+
+    def test_multiple_items_combined(self):
+        from galactic_cic.data.collectors import build_action_items
+        items = build_action_items(
+            {"jobs": [{"name": "Broken", "status": "error"}]},
+            {"ssh_intrusions": 200},
+            [{"name": "WA", "state": "WARN", "detail": "down"}],
+            {"available": True, "latest": "3.0"},
+            {"disk_percent": 95, "cpu_percent": 95, "mem_percent": 95},
+        )
+        # Should detect: cron error, ssh, channel warn, update, disk, mem, cpu
+        self.assertGreaterEqual(len(items), 5)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -877,3 +877,109 @@ async def get_top_processes(count: int = 5) -> list[dict[str, Any]]:
                 "command": parts[10].split("/")[-1][:20],
             })
     return processes
+
+
+async def get_channels_status() -> list[dict[str, str]]:
+    """Parse channel status from 'openclaw status' output."""
+    stdout, stderr, rc = await run_command("openclaw status 2>/dev/null")
+    if rc != 0 or not stdout:
+        return []
+
+    channels = []
+    in_channels = False
+    for line in stdout.splitlines():
+        if "Channels" in line and "│" not in line:
+            in_channels = True
+            continue
+        if in_channels:
+            # Stop at next section
+            if line.strip() and not line.strip().startswith("│") and not line.strip().startswith("├") and not line.strip().startswith("└") and not line.strip().startswith("┌") and not line.strip().startswith("─"):
+                if "Sessions" in line or "Security" in line or "FAQ" in line:
+                    break
+            m = re.match(r"│\s*(\S+)\s*│\s*(\S+)\s*│\s*(\S+)\s*│\s*(.*?)\s*│", line)
+            if m:
+                name = m.group(1).strip()
+                if name in ("Channel", "─", "──") or name.startswith("─"):
+                    continue
+                channels.append({
+                    "name": name,
+                    "enabled": m.group(2).strip(),
+                    "state": m.group(3).strip(),
+                    "detail": m.group(4).strip(),
+                })
+    return channels
+
+
+async def get_update_status() -> dict[str, Any]:
+    """Check for OpenClaw updates from 'openclaw status' output."""
+    result = {"available": False, "current": "", "latest": ""}
+
+    stdout, stderr, rc = await run_command("openclaw status 2>/dev/null")
+    if rc != 0 or not stdout:
+        return result
+
+    for line in stdout.splitlines():
+        # Check overview table for update info
+        if "Update" in line and "available" in line:
+            result["available"] = True
+            m = re.search(r"update ([\d.]+(?:-\d+)?)", line)
+            if m:
+                result["latest"] = m.group(1)
+        # Get current version from Gateway line
+        if "Gateway" in line and "app " in line:
+            m = re.search(r"app ([\d.]+(?:-\d+)?)", line)
+            if m:
+                result["current"] = m.group(1)
+
+    # Also try --version for current
+    if not result["current"]:
+        stdout, stderr, rc = await run_command("openclaw --version 2>/dev/null")
+        if rc == 0 and stdout.strip():
+            result["current"] = stdout.strip().split("\n")[0]
+
+    return result
+
+
+def build_action_items(cron_data, security_data, channels, update_info, server_health):
+    """Generate action items from collected data."""
+    items = []
+
+    # Cron errors
+    for job in cron_data.get("jobs", []):
+        if job.get("status", "").lower() == "error":
+            name = job.get("name", "Unknown")
+            items.append({"severity": "error", "text": f"{name} cron failed"})
+
+    # Security findings
+    ssh = security_data.get("ssh_intrusions", 0)
+    if ssh > 50:
+        items.append({"severity": "error", "text": f"{ssh} SSH intrusion attempts"})
+
+    ports = security_data.get("listening_ports", 0)
+    expected = security_data.get("expected_ports", 4)
+    if ports > expected + 2:
+        items.append({"severity": "warn", "text": f"{ports} listening ports (expected ~{expected})"})
+
+    # Update available
+    if update_info.get("available"):
+        items.append({"severity": "warn",
+                      "text": f"OpenClaw update: {update_info.get('latest', '?')}"})
+
+    # Channel warnings
+    for ch in channels:
+        if ch.get("state", "").upper() == "WARN":
+            items.append({"severity": "warn",
+                          "text": f"{ch['name']}: {ch.get('detail', 'warning')}"})
+
+    # High resource usage
+    cpu = server_health.get("cpu_percent", 0)
+    mem = server_health.get("mem_percent", 0)
+    disk = server_health.get("disk_percent", 0)
+    if disk > 80:
+        items.append({"severity": "warn", "text": f"Disk usage: {disk:.0f}%"})
+    if mem > 80:
+        items.append({"severity": "warn", "text": f"Memory usage: {mem:.0f}%"})
+    if cpu > 90:
+        items.append({"severity": "warn", "text": f"CPU usage: {cpu:.0f}%"})
+
+    return items

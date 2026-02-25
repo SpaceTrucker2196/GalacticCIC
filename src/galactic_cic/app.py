@@ -24,6 +24,9 @@ from galactic_cic.data.collectors import (
     get_ip_geolocation,
     get_openclaw_logs,
     get_error_summary,
+    get_channels_status,
+    get_update_status,
+    build_action_items,
 )
 from galactic_cic.db.database import MetricsDB
 from galactic_cic.db.recorder import MetricsRecorder
@@ -34,6 +37,7 @@ from galactic_cic.panels.server import ServerHealthPanel
 from galactic_cic.panels.cron import CronJobsPanel
 from galactic_cic.panels.security import SecurityPanel
 from galactic_cic.panels.activity import ActivityLogPanel
+from galactic_cic.panels.sitrep import SitrepPanel
 
 
 Binding = namedtuple("Binding", ["key", "action", "description"])
@@ -50,6 +54,7 @@ class CICDashboard:
         Binding("3", "focus_panel_3", "Cron Jobs"),
         Binding("4", "focus_panel_4", "Security"),
         Binding("5", "focus_panel_5", "Activity Log"),
+        Binding("6", "focus_panel_6", "SITREP"),
         Binding("Tab", "cycle_focus", "Cycle Focus"),
         Binding("?", "show_help", "Help"),
     ]
@@ -82,6 +87,7 @@ class CICDashboard:
             CronJobsPanel(),
             SecurityPanel(),
             ActivityLogPanel(),
+            SitrepPanel(),
         ]
 
         # Load theme from config
@@ -167,7 +173,7 @@ class CICDashboard:
             self.stdscr.addnstr(footer_y, 0, " " * w, w, footer_attr)
         except curses.error:
             pass
-        keys = "q:Quit  r:Refresh  1-5:Panel  Tab:Cycle  t:Theme  ?:Help"
+        keys = "q:Quit  r:Refresh  1-6:Panel  Tab:Cycle  t:Theme  ?:Help"
         try:
             self.stdscr.addnstr(footer_y, 2, keys, w - 4, footer_attr)
         except curses.error:
@@ -180,7 +186,7 @@ class CICDashboard:
             "",
             "  q        Quit",
             "  r        Refresh all panels",
-            "  1-5      Focus panel",
+            "  1-6      Focus panel",
             "  Tab      Cycle panel focus",
             "  ?        Toggle this help",
             "  Esc      Close help",
@@ -204,22 +210,53 @@ class CICDashboard:
             pass
 
     def _layout_panels(self):
+        """Layout 6 panels in a 3-column grid.
+
+        Wide (>=120 cols):
+          [Agent Fleet]  [Server Health]  [SITREP]
+          [Cron Jobs]    [Security]       (empty)
+          [Activity Log — full width]
+
+        Narrow (<120 cols): falls back to 2-column layout
+          [Agent Fleet]  [Server Health]
+          [Cron Jobs]    [Security]
+          [Activity Log] [SITREP]
+        """
         h, w = self.stdscr.getmaxyx()
         content_y = 1
         content_h = h - 2
         if content_h < 6:
             return []
-        row_h = content_h // 3
-        bot_h = content_h - 2 * row_h
-        half_w = w // 2
-        right_w = w - half_w
-        return [
-            (0, content_y, 0, row_h, half_w),
-            (1, content_y, half_w, row_h, right_w),
-            (2, content_y + row_h, 0, row_h, half_w),
-            (3, content_y + row_h, half_w, row_h, right_w),
-            (4, content_y + 2 * row_h, 0, bot_h, w),
-        ]
+
+        if w >= 120:
+            # 3-column layout
+            row_h = content_h // 3
+            bot_h = content_h - 2 * row_h
+            col_w = w // 3
+            mid_w = w // 3
+            right_w = w - col_w - mid_w
+            return [
+                (0, content_y, 0, row_h, col_w),              # Agent Fleet
+                (1, content_y, col_w, row_h, mid_w),          # Server Health
+                (5, content_y, col_w + mid_w, row_h, right_w),  # SITREP
+                (2, content_y + row_h, 0, row_h, col_w),     # Cron Jobs
+                (3, content_y + row_h, col_w, row_h, mid_w),  # Security
+                (4, content_y + 2 * row_h, 0, bot_h, w),     # Activity Log
+            ]
+        else:
+            # 2-column fallback
+            row_h = content_h // 3
+            bot_h = content_h - 2 * row_h
+            half_w = w // 2
+            right_w = w - half_w
+            return [
+                (0, content_y, 0, row_h, half_w),
+                (1, content_y, half_w, row_h, right_w),
+                (2, content_y + row_h, 0, row_h, half_w),
+                (3, content_y + row_h, half_w, row_h, right_w),
+                (4, content_y + 2 * row_h, 0, bot_h, half_w),
+                (5, content_y + 2 * row_h, half_w, bot_h, right_w),
+            ]
 
     def _draw_panels(self):
         layout = self._layout_panels()
@@ -293,6 +330,10 @@ class CICDashboard:
             tasks["security_status"] = get_security_status()
         if is_due("ssh_login_summary", self.TIER_SLOW):
             tasks["ssh_login_summary"] = get_ssh_login_summary()
+        if is_due("channels_status", self.TIER_SLOW):
+            tasks["channels_status"] = get_channels_status()
+        if is_due("update_status", self.TIER_SLOW):
+            tasks["update_status"] = get_update_status()
 
         # ── Run all due tasks concurrently ──
         if tasks:
@@ -328,6 +369,10 @@ class CICDashboard:
         processes = cached("top_processes", [])
         if not isinstance(processes, list):
             processes = []
+        channels = cached("channels_status", [])
+        if not isinstance(channels, list):
+            channels = []
+        update_info = cached("update_status", {"available": False, "current": "", "latest": ""})
 
         # Record metrics to DB
         try:
@@ -492,6 +537,16 @@ class CICDashboard:
             self.panels[4].update(all_events, errors=errors,
                                   ext_ip_summary=ext_ip_summary)
 
+            # SITREP panel — channels, update, action items
+            action_items = build_action_items(
+                cron_data, security_data, channels, update_info, health,
+            )
+            self.panels[5].update(
+                channels=channels,
+                update_info=update_info,
+                action_items=action_items,
+            )
+
     def _maybe_start_refresh(self):
         """Start background refresh if interval elapsed or forced."""
         now = time.monotonic()
@@ -516,10 +571,10 @@ class CICDashboard:
         elif key == ord("r"):
             self._force_refresh = True
             self._force_all_tiers = True
-        elif key in (ord("1"), ord("2"), ord("3"), ord("4"), ord("5")):
+        elif key in (ord("1"), ord("2"), ord("3"), ord("4"), ord("5"), ord("6")):
             self.focused_panel = key - ord("1")
         elif key == ord("\t"):
-            self.focused_panel = (self.focused_panel + 1) % 5
+            self.focused_panel = (self.focused_panel + 1) % 6
         elif key == ord("t"):
             theme.cycle_theme()
             self._init_colors()

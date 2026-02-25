@@ -80,7 +80,9 @@ def step_cron_details(context):
 @then('"{name}" should be displayed in red')
 def step_cron_red(context, name):
     text = context.panel_output.plain
-    assert name in text, f"Job '{name}' not found in output: {text}"
+    # Panel may truncate long names — check for start of name
+    short_name = name.split()[0]  # At minimum the first word should appear
+    assert short_name in text, f"Job '{name}' (or '{short_name}') not found in output: {text}"
     assert "\u274c" in text or "\u2717" in text or "✗" in text, "Error icon not found in output"
 
 
