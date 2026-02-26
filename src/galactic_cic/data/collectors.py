@@ -729,7 +729,7 @@ async def scan_attacker_ip(ip: str, db=None) -> dict[str, str]:
     result = {"open_ports": "", "os_guess": ""}
 
     stdout, stderr, rc = await run_command(
-        f"nmap -sS -T2 -Pn --max-retries 2 --open {ip} 2>/dev/null", timeout=60.0
+        f"nmap -sT -T2 -Pn --max-retries 2 --open {ip} 2>/dev/null", timeout=60.0
     )
     if rc == 0 and stdout:
         open_ports = []
@@ -779,7 +779,7 @@ async def scan_attacker_ip(ip: str, db=None) -> dict[str, str]:
 
 async def scan_attacker_ip_live(ip: str):
     """Nmap stealth scan yielding output lines as they stream in."""
-    cmd = f"nmap -sS -T2 -Pn --max-retries 2 --open {ip}"
+    cmd = f"nmap -sT -T2 -Pn --max-retries 2 --open {ip}"
     try:
         proc = await asyncio.create_subprocess_shell(
             cmd,
