@@ -572,12 +572,45 @@ class CICDashboard:
                     last_scan["timestamp"]
                 ).strftime("%H:%M:%S")
 
+            # Build ECM scan list from top 5 failed SSH IPs
+            ecm_scans = []
+            failed_ips = ssh_summary.get("failed", []) if isinstance(ssh_summary, dict) else []
+            for entry in failed_ips[:5]:
+                ip = entry.get("ip", "")
+                if not ip:
+                    continue
+                scan = attacker_scans.get(ip, {})
+                geo = geo_data.get(ip, {})
+                cc = geo.get("country_code", "?") if geo else "?"
+                city = geo.get("city", "") if geo else ""
+
+                if scan:
+                    ecm_scans.append({
+                        "ip": ip,
+                        "cc": cc,
+                        "city": city,
+                        "status": "complete",
+                        "ports": scan.get("open_ports", ""),
+                        "os_guess": scan.get("os_guess", ""),
+                    })
+                elif self.nmap_scanning:
+                    ecm_scans.append({
+                        "ip": ip, "cc": cc, "city": city,
+                        "status": "scanning", "ports": "", "os_guess": "",
+                    })
+                else:
+                    ecm_scans.append({
+                        "ip": ip, "cc": cc, "city": city,
+                        "status": "pending", "ports": "", "os_guess": "",
+                    })
+
             self.panels[3].update(
                 security_data, ssh_summary=ssh_summary,
                 last_nmap_time=last_nmap_time,
                 attacker_scans=attacker_scans,
                 geo_data=geo_data,
                 nmap_scanning=self.nmap_scanning,
+                ecm_scans=ecm_scans,
             )
 
             all_events = (activity_events if isinstance(activity_events, list) else []) + \

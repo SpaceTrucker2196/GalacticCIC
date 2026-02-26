@@ -23,6 +23,7 @@ class SecurityPanel(BasePanel):
         self.attacker_scans = {}  # ip -> {open_ports, os_guess}
         self.geo_data = {}  # ip -> {country_code, city, isp}
         self.nmap_scanning = False
+        self.ecm_scans = []  # list of {ip, status, ports, os_guess, cc, city}
 
     def draw(self, win, y, x, height, width, color_normal, color_highlight,
              color_warn, color_error, color_dim):
@@ -47,7 +48,8 @@ class SecurityPanel(BasePanel):
                     pass
 
     def update(self, data, ssh_summary=None, last_nmap_time=None,
-               attacker_scans=None, geo_data=None, nmap_scanning=None):
+               attacker_scans=None, geo_data=None, nmap_scanning=None,
+               ecm_scans=None):
         """Update panel data from collectors."""
         self.security_data = data or self.security_data
         if ssh_summary is not None:
@@ -60,6 +62,8 @@ class SecurityPanel(BasePanel):
             self.geo_data = geo_data
         if nmap_scanning is not None:
             self.nmap_scanning = nmap_scanning
+        if ecm_scans is not None:
+            self.ecm_scans = ecm_scans
 
     def _get_cc(self, ip):
         """Get 2-letter country code for an IP."""
@@ -336,3 +340,62 @@ class SecurityPanel(BasePanel):
                     line += f"  os: {os_s}"
                 self._safe_addstr(win, y + row, x, line, self.c_error, width)
                 row += 1
+
+        # ═══ ECM — Electronic Counter Measures ═══
+        if row + 4 < height:
+            row += 1
+            ecm_bar = "═" * (width - 4)
+            self._safe_addstr(win, y + row, x, f"  {ecm_bar}", self.c_highlight, width)
+            row += 1
+            ecm_title = "  ⚡ ECM — ELECTRONIC COUNTER MEASURES"
+            if self.nmap_scanning:
+                ecm_title += "  [SCANNING]"
+            self._safe_addstr(win, y + row, x, ecm_title,
+                             self.c_warn if self.nmap_scanning else self.c_highlight, width)
+            row += 1
+            self._safe_addstr(win, y + row, x, f"  {ecm_bar}", self.c_highlight, width)
+            row += 2
+
+            if self.ecm_scans:
+                # Header
+                hdr = f"    {'IP':<18} {'CC':>3}  {'Status':<12} {'Ports':<24} {'OS'}"
+                self._safe_addstr(win, y + row, x, hdr[:width], self.c_table_heading, width)
+                row += 1
+
+                for scan in self.ecm_scans:
+                    if row >= height:
+                        break
+                    ip = scan.get("ip", "?")
+                    cc = scan.get("cc", "?")
+                    status = scan.get("status", "?")
+                    ports = scan.get("ports", "")
+                    os_guess = scan.get("os_guess", "")
+
+                    if status == "scanning":
+                        icon, attr = "◐", self.c_warn
+                    elif status == "complete":
+                        icon, attr = "●", self.c_normal
+                    elif status == "error":
+                        icon, attr = "✖", self.c_error
+                    else:
+                        icon, attr = "○", self.c_dim
+
+                    ports_display = ports if ports else "—"
+                    os_display = os_guess if os_guess else "—"
+                    line = f"    {ip:<18} [{cc:>2}]  {icon} {status:<10} {ports_display:<24} {os_display}"
+                    self._safe_addstr(win, y + row, x, line[:width], attr, width)
+                    row += 1
+
+                row += 1
+                # Summary
+                total = len(self.ecm_scans)
+                active = sum(1 for s in self.ecm_scans if s.get("status") == "scanning")
+                complete = sum(1 for s in self.ecm_scans if s.get("status") == "complete")
+                errors = sum(1 for s in self.ecm_scans if s.get("status") == "error")
+                if row < height:
+                    self._safe_addstr(win, y + row, x,
+                        f"    Targets: {total}  Active: {active}  Complete: {complete}  Errors: {errors}",
+                        self.c_warn if active > 0 else self.c_normal, width)
+            else:
+                self._safe_addstr(win, y + row, x,
+                    "    No ECM scans — waiting for failed SSH IPs", self.c_dim, width)
