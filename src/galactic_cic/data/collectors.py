@@ -729,16 +729,30 @@ async def scan_attacker_ip(ip: str, db=None) -> dict[str, str]:
     result = {"open_ports": "", "os_guess": ""}
 
     stdout, stderr, rc = await run_command(
-        f"nmap -sT --top-ports 20 {ip} 2>/dev/null", timeout=10.0
+        f"nmap -Pn -sT --top-ports 20 {ip} 2>/dev/null", timeout=30.0
     )
     if rc == 0 and stdout:
-        ports = []
+        open_ports = []
+        filtered_ports = []
+        closed_ports = []
         for line in stdout.split("\n"):
             line = line.strip()
-            if "/tcp" in line and "open" in line:
-                port = line.split("/")[0]
-                ports.append(port)
-        result["open_ports"] = ",".join(ports)
+            if "/tcp" not in line:
+                continue
+            port = line.split("/")[0]
+            if "open" in line and "filtered" not in line:
+                open_ports.append(port)
+            elif "filtered" in line:
+                filtered_ports.append(port)
+            elif "closed" in line:
+                closed_ports.append(port)
+
+        if open_ports:
+            result["open_ports"] = ",".join(open_ports)
+        elif filtered_ports:
+            result["open_ports"] = f"filtered({len(filtered_ports)})"
+        else:
+            result["open_ports"] = "all-closed"
 
         # Try to parse OS guess
         for line in stdout.split("\n"):
@@ -748,7 +762,7 @@ async def scan_attacker_ip(ip: str, db=None) -> dict[str, str]:
                 break
         if not result["os_guess"]:
             # Guess from service banners
-            if any(p in ports for p in ["22"]):
+            if any(p in open_ports for p in ["22"]):
                 result["os_guess"] = "Linux"
 
     # Cache in DB
