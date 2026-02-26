@@ -729,7 +729,7 @@ async def scan_attacker_ip(ip: str, db=None) -> dict[str, str]:
     result = {"open_ports": "", "os_guess": ""}
 
     stdout, stderr, rc = await run_command(
-        f"nmap -Pn -sT --top-ports 20 {ip} 2>/dev/null", timeout=30.0
+        f"nmap -sS -T2 -Pn --max-retries 2 --open {ip} 2>/dev/null", timeout=60.0
     )
     if rc == 0 and stdout:
         open_ports = []
@@ -775,6 +775,27 @@ async def scan_attacker_ip(ip: str, db=None) -> dict[str, str]:
         db.commit()
 
     return result
+
+
+async def scan_attacker_ip_live(ip: str):
+    """Nmap stealth scan yielding output lines as they stream in."""
+    cmd = f"nmap -sS -T2 -Pn --max-retries 2 --open {ip}"
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        while True:
+            line = await asyncio.wait_for(proc.stdout.readline(), timeout=120.0)
+            if not line:
+                break
+            yield line.decode("utf-8", errors="replace").rstrip("\n")
+        await proc.wait()
+    except asyncio.TimeoutError:
+        yield "[scan timed out]"
+    except Exception as e:
+        yield f"[error: {e}]"
 
 
 async def get_openclaw_logs(limit: int = 20) -> list[dict[str, Any]]:

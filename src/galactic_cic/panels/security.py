@@ -1,7 +1,14 @@
 """Security Status panel for curses TUI."""
 
+import asyncio
+import curses
+import threading
+import time
+
 from galactic_cic import theme
 from galactic_cic.panels.base import BasePanel, StyledText, Table
+
+ECM_COOLDOWN = 600  # 10 minutes in seconds
 
 
 class SecurityPanel(BasePanel):
@@ -24,6 +31,14 @@ class SecurityPanel(BasePanel):
         self.geo_data = {}  # ip -> {country_code, city, isp}
         self.nmap_scanning = False
         self.ecm_scans = []  # list of {ip, status, ports, os_guess, cc, city}
+
+        # ECM interactive state
+        self.ecm_selected_index = 0
+        self.ecm_interactive = False
+        self.ecm_scan_output = []       # rolling list of scan output lines (max ~100)
+        self.ecm_scan_running = False
+        self.ecm_scan_target = ""
+        self.ecm_last_scan_times = {}   # ip -> timestamp
 
     def draw(self, win, y, x, height, width, color_normal, color_highlight,
              color_warn, color_error, color_dim):
@@ -64,6 +79,79 @@ class SecurityPanel(BasePanel):
             self.nmap_scanning = nmap_scanning
         if ecm_scans is not None:
             self.ecm_scans = ecm_scans
+
+    def _can_scan(self, ip):
+        last = self.ecm_last_scan_times.get(ip, 0)
+        return (time.time() - last) >= ECM_COOLDOWN
+
+    def _cooldown_remaining(self, ip):
+        last = self.ecm_last_scan_times.get(ip, 0)
+        remaining = ECM_COOLDOWN - (time.time() - last)
+        return max(0, remaining)
+
+    def _start_live_scan(self, ip):
+        """Launch a background thread to run a live nmap scan."""
+        from galactic_cic.data.collectors import scan_attacker_ip_live
+
+        self.ecm_scan_running = True
+        self.ecm_scan_target = ip
+        self.ecm_last_scan_times[ip] = time.time()
+        self.ecm_scan_output.append(f">>> Starting stealth scan on {ip} ...")
+
+        def _run():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                async def _collect():
+                    async for line in scan_attacker_ip_live(ip):
+                        self.ecm_scan_output.append(line)
+                        if len(self.ecm_scan_output) > 100:
+                            self.ecm_scan_output = self.ecm_scan_output[-100:]
+                loop.run_until_complete(_collect())
+            except Exception as exc:
+                self.ecm_scan_output.append(f"[error: {exc}]")
+            finally:
+                self.ecm_scan_output.append(f">>> Scan complete for {ip}")
+                self.ecm_scan_running = False
+                self.ecm_scan_target = ""
+                loop.close()
+
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
+
+    def handle_key(self, key):
+        """Handle key input when in ECM interactive mode.
+
+        Returns True if the key was consumed.
+        """
+        if not self.ecm_scans:
+            return False
+
+        # Tab cycles through ECM IPs
+        if key == ord("\t"):
+            self.ecm_selected_index = (self.ecm_selected_index + 1) % len(self.ecm_scans)
+            return True
+        elif key == curses.KEY_BTAB:
+            self.ecm_selected_index = (self.ecm_selected_index - 1) % len(self.ecm_scans)
+            return True
+
+        # Enter triggers scan on selected IP
+        if key in (ord("\n"), curses.KEY_ENTER, 10, 13):
+            if 0 <= self.ecm_selected_index < len(self.ecm_scans):
+                ip = self.ecm_scans[self.ecm_selected_index].get("ip", "")
+                if ip:
+                    if self.ecm_scan_running:
+                        self.ecm_scan_output.append(f"[scan already in progress on {self.ecm_scan_target}]")
+                    elif not self._can_scan(ip):
+                        remaining = self._cooldown_remaining(ip)
+                        mins = int(remaining) // 60
+                        secs = int(remaining) % 60
+                        self.ecm_scan_output.append(f"Cooldown: {mins}m {secs:02d}s remaining for {ip}")
+                    else:
+                        self._start_live_scan(ip)
+                return True
+
+        return False
 
     def _get_cc(self, ip):
         """Get 2-letter country code for an IP."""
@@ -362,8 +450,12 @@ class SecurityPanel(BasePanel):
                 self._safe_addstr(win, y + row, x, hdr[:width], self.c_table_heading, width)
                 row += 1
 
-                for scan in self.ecm_scans:
-                    if row >= height:
+                # Clamp selected index
+                if self.ecm_selected_index >= len(self.ecm_scans):
+                    self.ecm_selected_index = 0
+
+                for idx, scan in enumerate(self.ecm_scans):
+                    if row >= height - 12:  # reserve space for scan output
                         break
                     ip = scan.get("ip", "?")
                     cc = scan.get("cc", "?")
@@ -380,9 +472,17 @@ class SecurityPanel(BasePanel):
                     else:
                         icon, attr = "○", self.c_dim
 
+                    # Highlight selected IP with reverse video
+                    is_selected = (idx == self.ecm_selected_index)
+                    if is_selected:
+                        attr = attr | curses.A_REVERSE
+
                     ports_display = ports if ports else "—"
                     os_display = os_guess if os_guess else "—"
                     line = f"    {ip:<18} [{cc:>2}]  {icon} {status:<10} {ports_display:<24} {os_display}"
+                    if is_selected:
+                        # Pad to full width for clean reverse-video highlight
+                        line = line[:width].ljust(width)
                     self._safe_addstr(win, y + row, x, line[:width], attr, width)
                     row += 1
 
@@ -392,10 +492,44 @@ class SecurityPanel(BasePanel):
                 active = sum(1 for s in self.ecm_scans if s.get("status") == "scanning")
                 complete = sum(1 for s in self.ecm_scans if s.get("status") == "complete")
                 errors = sum(1 for s in self.ecm_scans if s.get("status") == "error")
-                if row < height:
+                if row < height - 12:
                     self._safe_addstr(win, y + row, x,
                         f"    Targets: {total}  Active: {active}  Complete: {complete}  Errors: {errors}",
                         self.c_warn if active > 0 else self.c_normal, width)
+                    row += 1
+
+                # Hint line
+                if row < height - 12:
+                    self._safe_addstr(win, y + row, x,
+                        "    [Tab] cycle IPs   [Enter] scan selected",
+                        self.c_dim, width)
             else:
                 self._safe_addstr(win, y + row, x,
                     "    No ECM scans — waiting for failed SSH IPs", self.c_dim, width)
+
+            # ── ECM SCAN OUTPUT ── (scrolling area at bottom)
+            output_height = 10
+            output_start = y + height - output_height - 1
+            if output_start > y + row + 1:
+                # Draw separator
+                sep_line = "── ECM SCAN OUTPUT " + "─" * max(0, width - 21)
+                self._safe_addstr(win, output_start, x, f"  {sep_line}"[:width],
+                                  self.c_highlight, width)
+                output_start += 1
+                output_height -= 1
+
+                if not self.ecm_scan_output:
+                    self._safe_addstr(win, output_start, x,
+                        "    Idle — select an IP and press Enter to scan",
+                        self.c_dim, width)
+                else:
+                    # Show the most recent lines that fit
+                    visible_lines = self.ecm_scan_output[-output_height:]
+                    for i, line in enumerate(visible_lines):
+                        if output_start + i >= y + height:
+                            break
+                        attr = self.c_warn if self.ecm_scan_running else self.c_normal
+                        if line.startswith(">>>") or line.startswith("["):
+                            attr = self.c_highlight
+                        self._safe_addstr(win, output_start + i, x,
+                            f"    {line}"[:width], attr, width)

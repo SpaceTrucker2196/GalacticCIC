@@ -21,6 +21,7 @@ from galactic_cic.data.collectors import (
     get_ssh_login_summary,
     resolve_ip,
     scan_attacker_ip,
+    scan_attacker_ip_live,
     get_ip_geolocation,
     get_openclaw_logs,
     get_error_summary,
@@ -830,9 +831,20 @@ class CICDashboard:
         return [t[0] for t in sorted_layout]
 
     def _handle_key(self, key):
-        # In detail view, Esc/q/Enter/Backspace returns to dashboard
+        # In detail view, route keys to panel first (ECM interactivity)
         if self._detail_view is not None:
-            if key in (27, ord("q"), ord("\n"), curses.KEY_BACKSPACE, 127, 263):
+            # Security panel (index 3) handles Tab/Enter for ECM
+            if isinstance(self._detail_view, int) and self._detail_view < len(self.panels):
+                panel = self.panels[self._detail_view]
+                if hasattr(panel, 'handle_key') and panel.handle_key(key):
+                    return True
+            # Esc/q/Backspace returns to dashboard
+            if key in (27, ord("q"), curses.KEY_BACKSPACE, 127, 263):
+                # Reset ECM interactive state when leaving detail view
+                if isinstance(self._detail_view, int) and self._detail_view < len(self.panels):
+                    panel = self.panels[self._detail_view]
+                    if hasattr(panel, 'ecm_interactive'):
+                        panel.ecm_interactive = False
                 self._detail_view = None
             return True
 
