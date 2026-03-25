@@ -5,6 +5,7 @@ from galactic_cic.panels.server import ServerHealthPanel
 from galactic_cic.panels.cron import CronJobsPanel
 from galactic_cic.panels.security import SecurityPanel
 from galactic_cic.panels.activity import ActivityLogPanel
+from galactic_cic.panels.memory import MemorySearchPanel
 
 __all__ = [
     "AgentFleetPanel",
@@ -12,4 +13,5 @@ __all__ = [
     "CronJobsPanel",
     "SecurityPanel",
     "ActivityLogPanel",
+    "MemorySearchPanel",
 ]
