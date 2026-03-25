@@ -33,6 +33,98 @@ async def run_command(cmd: str, timeout: float = 10.0) -> tuple[str, str, int]:
         return "", str(e), 1
 
 
+async def get_memory_search_status() -> dict[str, Any]:
+    """Get memory search indexing status across all agents."""
+    stdout, stderr, rc = await run_command(
+        "openclaw memory status --deep 2>&1", timeout=15.0
+    )
+
+    result: dict[str, Any] = {"agents": [], "provider": "", "model": ""}
+
+    if rc != 0 or not stdout.strip():
+        return result
+
+    current = None
+    for line in stdout.splitlines():
+        # New agent section: "Memory Search (main)"
+        if line.startswith("Memory Search ("):
+            if current:
+                result["agents"].append(current)
+            agent_name = line.split("(")[1].rstrip(")")
+            current = {
+                "agent": agent_name,
+                "provider": "",
+                "model": "",
+                "sources": "",
+                "indexed_files": 0,
+                "total_files": 0,
+                "chunks": 0,
+                "dirty": False,
+                "vector": "unknown",
+                "fts": "unknown",
+                "cache_entries": 0,
+                "cache_enabled": False,
+                "embeddings": "unknown",
+                "embeddings_error": "",
+                "store": "",
+            }
+            continue
+
+        if current is None:
+            continue
+
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        if stripped.startswith("Provider:"):
+            val = stripped.split(":", 1)[1].strip()
+            # Strip "(requested: ...)" suffix
+            if "(" in val:
+                val = val.split("(")[0].strip()
+            current["provider"] = val
+            if not result["provider"]:
+                result["provider"] = val
+        elif stripped.startswith("Model:"):
+            val = stripped.split(":", 1)[1].strip()
+            current["model"] = val
+            if not result["model"]:
+                result["model"] = val
+        elif stripped.startswith("Sources:"):
+            current["sources"] = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("Indexed:"):
+            # "Indexed: 35/35 files · 62 chunks"
+            import re as _re
+            m = _re.match(r'Indexed:\s*(\d+)/(\d+)\s*files?\s*·\s*(\d+)\s*chunks?', stripped)
+            if m:
+                current["indexed_files"] = int(m.group(1))
+                current["total_files"] = int(m.group(2))
+                current["chunks"] = int(m.group(3))
+        elif stripped.startswith("Dirty:"):
+            current["dirty"] = "yes" in stripped.lower()
+        elif stripped.startswith("Vector:"):
+            current["vector"] = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("FTS:"):
+            current["fts"] = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("Embeddings:"):
+            current["embeddings"] = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("Embeddings error:"):
+            current["embeddings_error"] = stripped.split(":", 1)[1].strip()
+        elif stripped.startswith("Embedding cache:"):
+            import re as _re
+            m = _re.match(r'Embedding cache:\s*(\w+)(?:\s*\((\d+)\s*entries?\))?', stripped)
+            if m:
+                current["cache_enabled"] = m.group(1).lower() == "enabled"
+                current["cache_entries"] = int(m.group(2)) if m.group(2) else 0
+        elif stripped.startswith("Store:"):
+            current["store"] = stripped.split(":", 1)[1].strip()
+
+    if current:
+        result["agents"].append(current)
+
+    return result
+
+
 async def get_agents_data() -> dict[str, Any]:
     """Get agent fleet status from openclaw agents list with storage and tokens."""
     stdout, stderr, rc = await run_command("openclaw agents list 2>/dev/null")

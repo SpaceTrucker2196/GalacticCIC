@@ -27,6 +27,7 @@ from galactic_cic.data.collectors import (
     get_error_summary,
     get_channels_status,
     get_update_status,
+    get_memory_search_status,
     build_action_items,
 )
 from galactic_cic.db.database import MetricsDB
@@ -39,6 +40,7 @@ from galactic_cic.panels.cron import CronJobsPanel
 from galactic_cic.panels.security import SecurityPanel
 from galactic_cic.panels.activity import ActivityLogPanel
 from galactic_cic.panels.sitrep import SitrepPanel
+from galactic_cic.panels.memory import MemorySearchPanel
 
 
 Binding = namedtuple("Binding", ["key", "action", "description"])
@@ -56,6 +58,7 @@ class CICDashboard:
         Binding("4", "focus_panel_4", "Security"),
         Binding("5", "focus_panel_5", "Activity Log"),
         Binding("6", "focus_panel_6", "SITREP"),
+        Binding("7", "focus_panel_7", "Memory Search"),
         Binding("Tab", "cycle_focus", "Cycle Focus"),
         Binding("?", "show_help", "Help"),
     ]
@@ -89,6 +92,7 @@ class CICDashboard:
             SecurityPanel(),
             ActivityLogPanel(),
             SitrepPanel(),
+            MemorySearchPanel(),
         ]
 
         # Load theme from config
@@ -211,7 +215,7 @@ class CICDashboard:
         if self._detail_view is not None:
             buttons = "[ Esc: Back ]  [ q: Quit ]"
         else:
-            buttons = "[ q: Quit ]  [ r: Refresh ]  [ Tab: Cycle ]  [ Enter: Detail ]  [ c: Config ]  [ t: Theme ]  [ ?: Help ]"
+            buttons = "[ q: Quit ]  [ r: Refresh ]  [ 1-7: Focus ]  [ Tab: Cycle ]  [ Enter: Detail ]  [ c: Config ]  [ t: Theme ]  [ ?: Help ]"
 
         try:
             col = 1
@@ -231,7 +235,7 @@ class CICDashboard:
             "",
             "  q          Quit",
             "  r          Refresh all panels",
-            "  1-6        Focus panel",
+            "  1-7        Focus panel",
             "  Tab        Cycle panels (reading order)",
             "  Shift+Tab  Cycle panels (reverse)",
             "  Enter      Open detail view",
@@ -259,17 +263,18 @@ class CICDashboard:
             pass
 
     def _layout_panels(self):
-        """Layout 6 panels in a 3-column grid.
+        """Layout 7 panels in a 3-column grid.
 
         Wide (>=120 cols):
-          [Agent Fleet]  [Server Health]  [SITREP]
-          [Cron Jobs]    [Security]       (empty)
-          [Activity Log — full width]
+          [Agent Fleet]    [SITREP ──────────────────]
+          [Cron Jobs]      [Server Health]  [Security]
+          [Memory Search]  [Activity Log ────────────]
 
         Narrow (<120 cols): falls back to 2-column layout
-          [Agent Fleet]  [Server Health]
-          [Cron Jobs]    [Security]
-          [Activity Log] [SITREP]
+          [Agent Fleet]    [Server Health]
+          [Cron Jobs]      [Security]
+          [Memory Search]  [SITREP]
+          [Activity Log ─── full width ──]
         """
         h, w = self.stdscr.getmaxyx()
         content_y = 1
@@ -278,7 +283,7 @@ class CICDashboard:
             return []
 
         if w >= 120:
-            # 3-column layout with SITREP spanning 2 columns on right
+            # 3-column layout
             row_h = content_h // 3
             bot_h = content_h - 2 * row_h
             col_w = w // 3
@@ -291,12 +296,13 @@ class CICDashboard:
                 (2, content_y + row_h, 0, row_h, col_w),     # Cron Jobs
                 (1, content_y + row_h, col_w, row_h, mid_w),  # Server Health
                 (3, content_y + row_h, col_w + mid_w, row_h, right_w),  # Security
-                (4, content_y + 2 * row_h, 0, bot_h, w),     # Activity Log
+                (6, content_y + 2 * row_h, 0, bot_h, col_w), # Memory Search
+                (4, content_y + 2 * row_h, col_w, bot_h, sitrep_w),  # Activity Log
             ]
         else:
-            # 2-column fallback
-            row_h = content_h // 3
-            bot_h = content_h - 2 * row_h
+            # 2-column fallback — 4 rows
+            row_h = content_h // 4
+            bot_h = content_h - 3 * row_h
             half_w = w // 2
             right_w = w - half_w
             return [
@@ -304,8 +310,9 @@ class CICDashboard:
                 (1, content_y, half_w, row_h, right_w),
                 (2, content_y + row_h, 0, row_h, half_w),
                 (3, content_y + row_h, half_w, row_h, right_w),
-                (4, content_y + 2 * row_h, 0, bot_h, half_w),
-                (5, content_y + 2 * row_h, half_w, bot_h, right_w),
+                (6, content_y + 2 * row_h, 0, row_h, half_w),
+                (5, content_y + 2 * row_h, half_w, row_h, right_w),
+                (4, content_y + 3 * row_h, 0, bot_h, w),
             ]
 
     def _draw_panels(self):
@@ -384,6 +391,8 @@ class CICDashboard:
             tasks["channels_status"] = get_channels_status()
         if is_due("update_status", self.TIER_SLOW):
             tasks["update_status"] = get_update_status()
+        if is_due("memory_search", self.TIER_SLOW):
+            tasks["memory_search"] = get_memory_search_status()
 
         # ── Run all due tasks concurrently ──
         if tasks:
@@ -423,6 +432,7 @@ class CICDashboard:
         if not isinstance(channels, list):
             channels = []
         update_info = cached("update_status", {"available": False, "current": "", "latest": ""})
+        memory_search_data = cached("memory_search", {"agents": [], "provider": "", "model": ""})
 
         # Record metrics to DB
         try:
@@ -629,6 +639,7 @@ class CICDashboard:
                 update_info=update_info,
                 action_items=action_items,
             )
+            self.panels[6].update(memory_data=memory_search_data)
 
     def _draw_detail_view(self):
         """Draw a full-screen detail view for a panel or config."""
@@ -761,7 +772,7 @@ class CICDashboard:
         bindings = [
             ("q", "Quit"),
             ("r", "Force refresh all"),
-            ("1-6", "Focus panel"),
+            ("1-7", "Focus panel"),
             ("Tab", "Cycle panels (reading order)"),
             ("Shift+Tab", "Cycle panels (reverse)"),
             ("Enter", "Open detail view"),
@@ -853,7 +864,7 @@ class CICDashboard:
         elif key == ord("r"):
             self._force_refresh = True
             self._force_all_tiers = True
-        elif key in (ord("1"), ord("2"), ord("3"), ord("4"), ord("5"), ord("6")):
+        elif key in (ord("1"), ord("2"), ord("3"), ord("4"), ord("5"), ord("6"), ord("7")):
             self.focused_panel = key - ord("1")
         elif key == ord("\t"):
             # Cycle in visual reading order
