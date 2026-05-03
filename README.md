@@ -53,8 +53,8 @@ Falls back to 2-column at <120 cols.
 
 ```bash
 # Clone
-git clone https://github.com/SpaceTrucker2196/cic-dashboard.git
-cd cic-dashboard
+git clone https://github.com/SpaceTrucker2196/GalacticCIC.git
+cd GalacticCIC
 
 # Install (editable)
 pip install -e . --break-system-packages
