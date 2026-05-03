@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  GalacticCIC collector launchd agent for macOS.
+
+  Replace __HOME__ with the absolute path to your home directory and
+  __COLLECTOR_BIN__ with the absolute path to galactic-cic-collector
+  (typically <repo>/venv/bin/galactic-cic-collector).
+
+  Install:
+    cp scripts/launchd/ai.openclaw.galactic-cic-collector.plist \
+       ~/Library/LaunchAgents/
+    # edit the copy to substitute the two placeholders, then:
+    launchctl load ~/Library/LaunchAgents/ai.openclaw.galactic-cic-collector.plist
+
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/ai.openclaw.galactic-cic-collector.plist
+    rm ~/Library/LaunchAgents/ai.openclaw.galactic-cic-collector.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ai.openclaw.galactic-cic-collector</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__COLLECTOR_BIN__</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>WorkingDirectory</key>
+    <string>__HOME__</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>HOME</key>
+        <string>__HOME__</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>__HOME__/.galactic_cic/collector.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>__HOME__/.galactic_cic/collector.err</string>
+</dict>
+</plist>
