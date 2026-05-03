@@ -59,11 +59,37 @@ cd GalacticCIC
 # Install (editable)
 pip install -e . --break-system-packages
 
-# Install the systemd collector service
+# Install the systemd collector service (Linux only)
 gcic install
 
 # Start collecting data
 gcic start
+```
+
+### macOS (launchd)
+
+`gcic install` / `gcic start` use systemd and don't work on macOS. Use a launchd user agent instead:
+
+```bash
+# Substitute placeholders and copy into LaunchAgents
+sed -e "s|__HOME__|$HOME|g" \
+    -e "s|__COLLECTOR_BIN__|$(which galactic-cic-collector)|g" \
+    scripts/launchd/ai.openclaw.galactic-cic-collector.plist \
+    > ~/Library/LaunchAgents/ai.openclaw.galactic-cic-collector.plist
+
+# Load and start
+launchctl load ~/Library/LaunchAgents/ai.openclaw.galactic-cic-collector.plist
+
+# Verify
+launchctl list | grep galactic-cic
+tail -f ~/.galactic_cic/collector.err
+```
+
+The agent has `RunAtLoad=true` and `KeepAlive` (auto-restart on crash, 30s throttle). To stop and uninstall:
+
+```bash
+launchctl unload ~/Library/LaunchAgents/ai.openclaw.galactic-cic-collector.plist
+rm ~/Library/LaunchAgents/ai.openclaw.galactic-cic-collector.plist
 ```
 
 ## Commands
