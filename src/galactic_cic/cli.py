@@ -23,7 +23,14 @@ import sys
 import time
 
 SERVICE_NAME = "galactic-cic-collector.service"
+LAUNCHD_LABEL = "ai.openclaw.galactic-cic-collector"
 DB_PATH = os.path.expanduser("~/.galactic_cic/metrics.db")
+COLLECTOR_LOG = os.path.expanduser("~/.galactic_cic/collector.log")
+COLLECTOR_ERR = os.path.expanduser("~/.galactic_cic/collector.err")
+LAUNCHD_PLIST = os.path.expanduser(
+    f"~/Library/LaunchAgents/{LAUNCHD_LABEL}.plist"
+)
+IS_DARWIN = sys.platform == "darwin"
 
 
 def _systemctl(*args):
@@ -33,9 +40,40 @@ def _systemctl(*args):
     return r.stdout.strip(), r.returncode
 
 
+def _launchctl(*args):
+    """Run launchctl command, return (stdout, returncode)."""
+    r = subprocess.run(["launchctl", *args], capture_output=True, text=True)
+    return r.stdout.strip(), r.returncode
+
+
+def _launchctl_list_entry():
+    """Return (pid, last_exit_code) for the launchd job, or (None, None)."""
+    out, rc = _launchctl("list", LAUNCHD_LABEL)
+    if rc != 0:
+        return None, None
+    pid = None
+    last = None
+    for line in out.splitlines():
+        line = line.strip().rstrip(";").rstrip(",")
+        if line.startswith('"PID"'):
+            try:
+                pid = int(line.split("=", 1)[1].strip())
+            except ValueError:
+                pid = None
+        elif line.startswith('"LastExitStatus"'):
+            try:
+                last = int(line.split("=", 1)[1].strip())
+            except ValueError:
+                last = None
+    return pid, last
+
+
 def _is_running():
     """Check if collector daemon is running."""
-    out, rc = _systemctl("is-active", SERVICE_NAME)
+    if IS_DARWIN:
+        pid, _ = _launchctl_list_entry()
+        return pid is not None and pid > 0
+    out, _ = _systemctl("is-active", SERVICE_NAME)
     return out == "active"
 
 
@@ -45,14 +83,22 @@ def cmd_start(args):
         print("Collector is already running")
         cmd_status(args)
         return
-    _systemctl("start", SERVICE_NAME)
+    if IS_DARWIN:
+        if not os.path.exists(LAUNCHD_PLIST):
+            print("✖ launchd agent not installed")
+            print("  Run: gcic install")
+            return
+        _launchctl("load", LAUNCHD_PLIST)
+    else:
+        _systemctl("start", SERVICE_NAME)
     time.sleep(1)
     if _is_running():
         print("✓ Collector started")
     else:
         print("✖ Failed to start collector")
-        out, _ = _systemctl("status", SERVICE_NAME)
-        print(out)
+        if not IS_DARWIN:
+            out, _ = _systemctl("status", SERVICE_NAME)
+            print(out)
 
 
 def cmd_stop(args):
@@ -60,7 +106,10 @@ def cmd_stop(args):
     if not _is_running():
         print("Collector is not running")
         return
-    _systemctl("stop", SERVICE_NAME)
+    if IS_DARWIN:
+        _launchctl("unload", LAUNCHD_PLIST)
+    else:
+        _systemctl("stop", SERVICE_NAME)
     time.sleep(1)
     if not _is_running():
         print("✓ Collector stopped")
@@ -70,44 +119,71 @@ def cmd_stop(args):
 
 def cmd_restart(args):
     """Restart the collector daemon."""
-    _systemctl("restart", SERVICE_NAME)
+    if IS_DARWIN:
+        # kickstart -k restarts the running job; falls back to load if not loaded
+        _, rc = _launchctl(
+            "kickstart", "-k", f"gui/{os.getuid()}/{LAUNCHD_LABEL}"
+        )
+        if rc != 0 and os.path.exists(LAUNCHD_PLIST):
+            _launchctl("load", LAUNCHD_PLIST)
+    else:
+        _systemctl("restart", SERVICE_NAME)
     time.sleep(1)
     if _is_running():
         print("✓ Collector restarted")
     else:
         print("✖ Failed to restart collector")
-        out, _ = _systemctl("status", SERVICE_NAME)
-        print(out)
+        if not IS_DARWIN:
+            out, _ = _systemctl("status", SERVICE_NAME)
+            print(out)
 
 
 def cmd_status(args):
     """Show collector daemon status and DB stats."""
-    # Daemon status
-    if _is_running():
-        out, _ = _systemctl("show", SERVICE_NAME,
-                            "--property=MainPID,ActiveEnterTimestamp,MemoryCurrent")
-        props = {}
-        for line in out.splitlines():
-            if "=" in line:
-                k, v = line.split("=", 1)
-                props[k] = v
-        pid = props.get("MainPID", "?")
-        since = props.get("ActiveEnterTimestamp", "?")
-        mem = props.get("MemoryCurrent", "?")
-        if mem.isdigit():
-            mem = f"{int(mem) / 1024 / 1024:.1f}MB"
-        print(f"  Collector:  ● RUNNING (PID {pid})")
-        print(f"  Since:      {since}")
-        print(f"  Memory:     {mem}")
-    else:
-        # Check if service exists
-        out, rc = _systemctl("list-unit-files", SERVICE_NAME)
-        if SERVICE_NAME in out:
-            print(f"  Collector:  ✖ STOPPED (service installed)")
+    if IS_DARWIN:
+        pid, last_exit = _launchctl_list_entry()
+        if pid is None:
+            if os.path.exists(LAUNCHD_PLIST):
+                print("  Collector:  ✖ NOT LOADED (plist installed)")
+                print("  Start:      gcic start")
+            else:
+                print("  Collector:  ✖ NOT INSTALLED")
+                print("  Install:    gcic install")
+            return
+        if pid > 0:
+            print(f"  Collector:  ● RUNNING (PID {pid})")
+            print(f"  Plist:      {LAUNCHD_PLIST}")
         else:
-            print(f"  Collector:  ✖ NOT INSTALLED")
-            print(f"  Install:    gcic install")
-        return
+            print(f"  Collector:  ✖ STOPPED (last exit {last_exit})")
+            print(f"  Plist:      {LAUNCHD_PLIST}")
+            return
+    else:
+        if _is_running():
+            out, _ = _systemctl(
+                "show", SERVICE_NAME,
+                "--property=MainPID,ActiveEnterTimestamp,MemoryCurrent",
+            )
+            props = {}
+            for line in out.splitlines():
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    props[k] = v
+            pid = props.get("MainPID", "?")
+            since = props.get("ActiveEnterTimestamp", "?")
+            mem = props.get("MemoryCurrent", "?")
+            if mem.isdigit():
+                mem = f"{int(mem) / 1024 / 1024:.1f}MB"
+            print(f"  Collector:  ● RUNNING (PID {pid})")
+            print(f"  Since:      {since}")
+            print(f"  Memory:     {mem}")
+        else:
+            out, _ = _systemctl("list-unit-files", SERVICE_NAME)
+            if SERVICE_NAME in out:
+                print("  Collector:  ✖ STOPPED (service installed)")
+            else:
+                print("  Collector:  ✖ NOT INSTALLED")
+                print("  Install:    gcic install")
+            return
 
     # DB stats
     print()
@@ -202,6 +278,19 @@ def _print_db_stats():
 def cmd_logs(args):
     """Show collector daemon logs."""
     count = args.lines or 30
+    if IS_DARWIN:
+        # On macOS we tail the file logs written by the launchd agent.
+        # Prefer collector.err since the daemon logs INFO-level there.
+        log_file = COLLECTOR_ERR if os.path.exists(COLLECTOR_ERR) else COLLECTOR_LOG
+        if not os.path.exists(log_file):
+            print(f"✖ No log file at {log_file}")
+            print("  Is the collector installed? Run: gcic install")
+            return
+        cmd = ["tail", "-n", str(count)]
+        if args.follow:
+            cmd.append("-f")
+        cmd.append(log_file)
+        os.execvp("tail", cmd)
     cmd = ["journalctl", "--user", "-u", SERVICE_NAME,
            "--no-pager", "-n", str(count)]
     if args.follow:
@@ -209,8 +298,74 @@ def cmd_logs(args):
     os.execvp("journalctl", cmd)
 
 
+def _install_launchd():
+    """Install the macOS launchd user agent."""
+    collector_bin = subprocess.run(
+        ["which", "galactic-cic-collector"],
+        capture_output=True, text=True,
+    ).stdout.strip()
+    if not collector_bin:
+        print("✖ galactic-cic-collector not found in PATH")
+        print("  Run: pip install -e .")
+        return
+
+    home = os.path.expanduser("~")
+    plist_dir = os.path.dirname(LAUNCHD_PLIST)
+    os.makedirs(plist_dir, exist_ok=True)
+    os.makedirs(os.path.dirname(COLLECTOR_LOG), exist_ok=True)
+
+    plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{LAUNCHD_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{collector_bin}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+    <key>WorkingDirectory</key>
+    <string>{home}</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>HOME</key>
+        <string>{home}</string>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>{COLLECTOR_LOG}</string>
+    <key>StandardErrorPath</key>
+    <string>{COLLECTOR_ERR}</string>
+</dict>
+</plist>
+"""
+    # Unload any existing copy before overwriting (best-effort).
+    if os.path.exists(LAUNCHD_PLIST):
+        _launchctl("unload", LAUNCHD_PLIST)
+    with open(LAUNCHD_PLIST, "w") as f:
+        f.write(plist_content)
+    _launchctl("load", LAUNCHD_PLIST)
+    print(f"✓ launchd agent installed at {LAUNCHD_PLIST}")
+    print(f"  Collector: {collector_bin}")
+    print("  Status:    gcic status")
+
+
 def cmd_install(args):
-    """Install/reinstall the systemd service."""
+    """Install/reinstall the collector service for the current platform."""
+    if IS_DARWIN:
+        _install_launchd()
+        return
+
     service_dir = os.path.expanduser("~/.config/systemd/user")
     service_path = os.path.join(service_dir, SERVICE_NAME)
     os.makedirs(service_dir, exist_ok=True)
