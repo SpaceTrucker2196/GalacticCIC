@@ -8,11 +8,13 @@ The owner bills clients from `LEDGER.md` at this repo's root (create/commit it i
 
 After every substantive commit you author:
 
-```bash
-~/.claude/billing/ledger.py --append --summary "<short description>"
-git add LEDGER.md
-git commit -m "chore(ledger): $(git rev-parse --short HEAD~0)"
-```
+    if ~/.claude/billing/ledger.py --append --summary "<short description>"; then
+      git add LEDGER.md
+      git commit -m "chore(ledger): $(git rev-parse --short HEAD)"
+    else
+      rc=$?
+      [ "$rc" -eq 2 ] || exit "$rc"
+    fi
 
 The script:
 
