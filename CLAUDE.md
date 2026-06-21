@@ -31,5 +31,5 @@ Use `--dry-run` to preview without writing. Use `--commit <sha>` to ledger a spe
 - **Never bypass the script.** Do not hand-author rows, estimate tokens, or fabricate costs. If the script can't produce a row (unknown model, missing transcript, session ran from a different cwd), stop and surface the problem to the owner.
 - **Append-only.** Never rewrite, reorder, or delete past rows. Correct mistakes by adding a new row whose `summary` notes the correction.
 - **Separate commits.** The ledger update lands as its own `chore(ledger): <short-sha>` commit. Never amend the substantive commit.
-- **Keep pricing current.** If you notice Anthropic pricing has changed, update `~/.claude/billing/pricing.json` in its own commit before running the ledger again. Past rows correctly preserve historical pricing.
+- **Keep pricing current.** If you notice Anthropic pricing has changed, update `~/.claude/billing/pricing.json` (in the centralized billing tool) before running the ledger again. Past rows correctly preserve historical pricing.
 - **Multi-machine work** isn't aggregated automatically — transcripts live on whichever machine ran the session. Surface this if relevant.
